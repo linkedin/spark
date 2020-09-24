@@ -36,6 +36,7 @@ import org.apache.spark.network.shuffle.ExternalBlockStoreClient
 import org.apache.spark.rpc.{IsolatedRpcEndpoint, RpcCallContext, RpcEndpointAddress, RpcEndpointRef, RpcEnv}
 import org.apache.spark.scheduler._
 import org.apache.spark.scheduler.cluster.{CoarseGrainedClusterMessages, CoarseGrainedSchedulerBackend}
+import org.apache.spark.shuffle.ShuffleMergerDiscovery
 import org.apache.spark.storage.BlockManagerMessages._
 import org.apache.spark.util.{RpcUtils, ThreadUtils, Utils}
 
@@ -52,7 +53,7 @@ class BlockManagerMasterEndpoint(
     externalBlockStoreClient: Option[ExternalBlockStoreClient],
     blockManagerInfo: mutable.Map[BlockManagerId, BlockManagerInfo],
     mapOutputTracker: MapOutputTrackerMaster)
-  extends IsolatedRpcEndpoint with Logging {
+  extends IsolatedRpcEndpoint with Logging with ShuffleMergerDiscovery {
 
   // Mapping from executor id to the block manager's local disk directories.
   private val executorIdToLocalDirs =
@@ -141,6 +142,9 @@ class BlockManagerMasterEndpoint(
 
     case GetBlockStatus(blockId, askStorageEndpoints) =>
       context.reply(blockStatus(blockId, askStorageEndpoints))
+
+    case GetMergerLocations(numMergersNeeded, hostsToFilter) =>
+      context.reply(getMergerLocations(numMergersNeeded, hostsToFilter))
 
     case IsExecutorAlive(executorId) =>
       context.reply(blockManagerIdByExecutor.contains(executorId))
@@ -647,10 +651,18 @@ class BlockManagerMasterEndpoint(
     }
   }
 
-  /** Get the list of active block manager ids */
-  private def getAllExecutors: Seq[BlockManagerId] = {
-    val blockManagerIds = blockManagerInfo.keySet
-    blockManagerIds.filterNot { _.isDriver }.toSeq
+  override def getMergerLocations(
+      numMergersNeeded: Int,
+      hostsToFilter: Set[String]): Seq[BlockManagerId] = {
+    val shuffleServicesHosts =
+      blockManagerIdByExecutor.values
+        .filter(bm => !hostsToFilter.contains(bm.host))
+        .groupBy(_.host).mapValues(_.head).values.toSeq
+    val mergerLocations = shuffleServicesHosts.map {
+      bm =>
+        BlockManagerId(bm.executorId, bm.host, StorageUtils.externalShuffleServicePort(conf))
+    }
+    Utils.randomize(mergerLocations).take(numMergersNeeded)
   }
 
   /**

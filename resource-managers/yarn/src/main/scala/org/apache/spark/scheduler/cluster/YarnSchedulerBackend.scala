@@ -18,8 +18,7 @@
 package org.apache.spark.scheduler.cluster
 
 import java.util.EnumSet
-import java.util.concurrent.atomic.{AtomicBoolean}
-import javax.servlet.DispatcherType
+import java.util.concurrent.atomic.AtomicBoolean
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
@@ -36,7 +35,8 @@ import org.apache.spark.resource.ResourceProfile
 import org.apache.spark.rpc._
 import org.apache.spark.scheduler._
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages._
-import org.apache.spark.util.{RpcUtils, ThreadUtils}
+import org.apache.spark.storage.{BlockManagerId, BlockManagerMaster}
+import org.apache.spark.util.{RpcUtils, ThreadUtils, Utils}
 
 /**
  * Abstract Yarn scheduler backend that contains common logic
@@ -79,6 +79,8 @@ private[spark] abstract class YarnSchedulerBackend(
 
   /** Attempt ID. This is unset for client-mode schedulers */
   private var attemptId: Option[ApplicationAttemptId] = None
+
+  private val blockManagerMaster: BlockManagerMaster = sc.env.blockManager.master
 
   /**
    * Bind to YARN. This *must* be done before calling [[start()]].
@@ -159,6 +161,14 @@ private[spark] abstract class YarnSchedulerBackend(
 
   override def sufficientResourcesRegistered(): Boolean = {
     totalRegisteredExecutors.get() >= totalExpectedExecutors * minRegisteredRatio
+  }
+
+  override def getMergerLocations(numPartitions: Int): Seq[BlockManagerId] = {
+    // Currently this is naive way of calculating numMergersNeeded for a stage. In future,
+    // we can use better heuristics to calculate numMergersNeeded for a stage.
+    val numMergersNeeded = math.min(math.max(1, math.ceil(numPartitions / tasksPerExecutor).toInt),
+      Utils.getDynamicAllocationMaxExecutors(conf))
+    blockManagerMaster.getMergerLocations(numMergersNeeded, scheduler.nodeBlacklist())
   }
 
   /**
