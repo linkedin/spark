@@ -163,11 +163,14 @@ private[spark] abstract class YarnSchedulerBackend(
     totalRegisteredExecutors.get() >= totalExpectedExecutors * minRegisteredRatio
   }
 
-  override def getMergerLocations(numPartitions: Int): Seq[BlockManagerId] = {
+  override def getMergerLocations(
+      numPartitions: Int,
+      resourceProfileId: Int): Seq[BlockManagerId] = {
     // Currently this is naive way of calculating numMergersNeeded for a stage. In future,
     // we can use better heuristics to calculate numMergersNeeded for a stage.
-    val numMergersNeeded = math.min(math.max(1, math.ceil(numPartitions / tasksPerExecutor).toInt),
-      Utils.getDynamicAllocationMaxExecutors(conf))
+    val tasksPerExecutor = sc.resourceProfileManager
+        .resourceProfileFromId(resourceProfileId).maxTasksPerExecutor(sc.conf)
+    val numMergersNeeded = math.max(1, math.ceil(numPartitions / tasksPerExecutor).toInt)
     blockManagerMaster.getMergerLocations(numMergersNeeded, scheduler.nodeBlacklist())
   }
 

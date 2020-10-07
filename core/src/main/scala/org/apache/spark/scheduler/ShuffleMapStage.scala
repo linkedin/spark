@@ -18,11 +18,10 @@
 package org.apache.spark.scheduler
 
 import scala.collection.mutable.HashSet
-
 import org.apache.spark.{MapOutputTrackerMaster, ShuffleDependency}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.BlockManagerId
-import org.apache.spark.util.CallSite
+import org.apache.spark.util.{CallSite, Utils}
 
 /**
  * ShuffleMapStages are intermediate stages in the execution DAG that produce data for a shuffle.
@@ -48,12 +47,6 @@ private[spark] class ShuffleMapStage(
   extends Stage(id, rdd, numTasks, parents, firstJobId, callSite, resourceProfileId) {
 
   private[this] var _mapStageJobs: List[ActiveJob] = Nil
-
-  /**
-   * Stores the location of the list of chosen external shuffle services for handling the
-   * shuffle merge requests from mappers in this shuffle map stage.
-   */
-  private[this] var _mergerLocs: Seq[BlockManagerId] = Nil
 
   /**
    * Partitions that either haven't yet been computed, or that were computed on an executor
@@ -84,6 +77,15 @@ private[spark] class ShuffleMapStage(
     _mapStageJobs = _mapStageJobs.filter(_ != job)
   }
 
+  // By default, shuffle merge is enabled for all the stages if push based shuffle is enabled
+  private[this] var _shuffleMergeEnabled = Utils.isPushBasedShuffleEnabled(rdd.sparkContext.getConf)
+
+  def setShuffleMergeEnabled(shuffleMergeEnabled: Boolean): Unit = {
+    _shuffleMergeEnabled = shuffleMergeEnabled
+  }
+
+  def shuffleMergeEnabled : Boolean = _shuffleMergeEnabled
+
   /**
    * Number of partitions that have shuffle outputs.
    * When this reaches [[numPartitions]], this map stage is ready.
@@ -95,18 +97,22 @@ private[spark] class ShuffleMapStage(
    */
   def isAvailable: Boolean = numAvailableOutputs == numPartitions
 
+  /**
+   * Retruns true if push based shuffle is disabled for this stage, or if the shuffle merge for
+   * this stage is finalized, i.e. the shuffle merge results for all partitions are available.
+   */
+  def isMergeFinalized: Boolean = {
+    if (shuffleMergeEnabled) {
+      shuffleDep.shuffleMergeFinalized
+    } else {
+      true
+    }
+  }
+
   /** Returns the sequence of partition ids that are missing (i.e. needs to be computed). */
   override def findMissingPartitions(): Seq[Int] = {
     mapOutputTrackerMaster
       .findMissingPartitions(shuffleDep.shuffleId)
       .getOrElse(0 until numPartitions)
   }
-
-  def setMergerLocs(mergerLocs: Seq[BlockManagerId]): Unit = {
-    if (mergerLocs != null && mergerLocs.length > 0) {
-      _mergerLocs = mergerLocs
-    }
-  }
-
-  def getMergerLocs: Seq[BlockManagerId] = _mergerLocs
 }

@@ -1301,15 +1301,28 @@ private[spark] class DAGScheduler(
     // TODO All of these seems to require a dedicated service outside of Spark.
     // TODO Making this API pluggable would help to achieve that while also providing
     // TODO a reasonable default implementation for open source Spark.
-    val mergerLocs = blockManagerMaster.getAllExecutors.map { blockManagerId =>
-      BlockManagerId(blockManagerId.executorId, blockManagerId.host,
-        externalShuffleServicePort, blockManagerId.topologyInfo)
+
+    // TODO LIHADOOP-55931 - There are cases where reattempt of the stage could still have
+    // TODO push based shuffle enabled. This can be thought through further in the future.
+    if (stage.shuffleDep.getMergerLocs.isEmpty && stage.shuffleMergeEnabled) {
+      // TODO: Reuse merger locations for sibling stages (for eg: join cases) so that
+      // TODO: both the RDD's output will be colocated giving better locality
+      val mergerLocs = sc.schedulerBackend.getMergerLocations(
+        stage.shuffleDep.partitioner.numPartitions, stage.resourceProfileId)
+      if (mergerLocs.nonEmpty) {
+        stage.shuffleDep.setMergerLocs(mergerLocs)
+      } else {
+        stage.setShuffleMergeEnabled(false)
+      }
     }
-    // Store the merger location information in both the stage and the shuffle
-    // dependency (to be sent to tasks). This way, both the DAGScheduler and the
-    // tasks can access this information.
-    stage.setMergerLocs(mergerLocs)
-    stage.shuffleDep.setMergerLocs(mergerLocs)
+
+    if (stage.shuffleMergeEnabled) {
+      logInfo("Shuffle merge enabled for %s (%s) with %d merger locations"
+        .format(stage, stage.name, stage.shuffleDep.getMergerLocs.size))
+    } else {
+      logInfo("Shuffle merge disabled for %s (%s)".format(stage, stage.name))
+    }
+    logDebug(s"${stage.shuffleDep.getMergerLocs.map(_.host).mkString(", ")}")
   }
 
   /** Called when stage's parents are available and we can now do its task. */
@@ -1344,7 +1357,7 @@ private[spark] class DAGScheduler(
         // Only generate merger location for a given shuffle map stage once. This way, even if
         // this stage gets retried, it would still be merging blocks using the same set of
         // shuffle services.
-        if (pushBasedShuffleEnabled && s.getMergerLocs.isEmpty) {
+        if (pushBasedShuffleEnabled && s.shuffleMergeEnabled) {
           prepareShuffleServicesForShuffleMapStage(s)
         }
       case s: ResultStage =>
@@ -1579,10 +1592,17 @@ private[spark] class DAGScheduler(
   private[scheduler] def finalizeShuffleMerge(stage: ShuffleMapStage): Unit = {
     externalShuffleClient.foreach { shuffleClient =>
       val shuffleId = stage.shuffleDep.shuffleId
-      val numMergers = stage.getMergerLocs.length
+      val numMergers = stage.shuffleDep.getMergerLocs.length
       var numResponses = 0
       val results = (0 until numMergers).map(_ => SettableFuture.create[Boolean]())
       val timedOut = new AtomicBoolean()
+
+      // NOTE: This is a defensive check to post finalize event if numMergers is 0 (i.e. no shuffle
+      // service available).
+      if (numMergers == 0) {
+        eventProcessLoop.post(ShuffleMergeFinalized(stage))
+        return
+      }
 
       def increaseAndCheckResponseCount: Unit = {
         numResponses = numResponses + 1
@@ -1595,7 +1615,7 @@ private[spark] class DAGScheduler(
         }
       }
 
-      stage.getMergerLocs.zipWithIndex.foreach {
+      stage.shuffleDep.getMergerLocs.zipWithIndex.foreach {
         case (shuffleServiceLoc, index) =>
           // Sends async request to shuffle service to finalize shuffle merge on that host
           shuffleClient.finalizeShuffleMerge(shuffleServiceLoc.host,

@@ -128,9 +128,6 @@ class BlockManagerMasterEndpoint(
     case GetPeers(blockManagerId) =>
       context.reply(getPeers(blockManagerId))
 
-    case GetAllExecutors =>
-      context.reply(getAllExecutors)
-
     case GetExecutorEndpointRef(executorId) =>
       context.reply(getExecutorEndpointRef(executorId))
 

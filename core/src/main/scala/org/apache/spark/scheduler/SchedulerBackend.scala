@@ -97,6 +97,6 @@ private[spark] trait SchedulerBackend {
    * Get the list of both active and dead executors host locations for push based shuffle
    * @return List of external shuffle services locations
    */
-  def getMergerLocations(numPartitions: Int): Seq[BlockManagerId] = Nil
+  def getMergerLocations(numPartitions: Int, resourceProfileId: Int): Seq[BlockManagerId] = Nil
 
 }
