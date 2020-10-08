@@ -19,6 +19,7 @@ package org.apache.spark.scheduler.cluster
 
 import java.util.EnumSet
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.servlet.DispatcherType
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
@@ -28,15 +29,14 @@ import org.apache.hadoop.yarn.api.records.{ApplicationAttemptId, ApplicationId}
 
 import org.apache.spark.SparkContext
 import org.apache.spark.deploy.security.HadoopDelegationTokenManager
-import org.apache.spark.internal.Logging
-import org.apache.spark.internal.config
+import org.apache.spark.internal.{config, Logging}
 import org.apache.spark.internal.config.UI._
 import org.apache.spark.resource.ResourceProfile
 import org.apache.spark.rpc._
 import org.apache.spark.scheduler._
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages._
 import org.apache.spark.storage.{BlockManagerId, BlockManagerMaster}
-import org.apache.spark.util.{RpcUtils, ThreadUtils, Utils}
+import org.apache.spark.util.{RpcUtils, ThreadUtils}
 
 /**
  * Abstract Yarn scheduler backend that contains common logic

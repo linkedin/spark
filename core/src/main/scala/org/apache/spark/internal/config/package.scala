@@ -1958,4 +1958,25 @@ package object config {
         "shuffle is enabled. By default, the threadpool size is equal to the number of cores")
       .intConf
       .createOptional
+
+  private[spark] val MAX_MERGER_LOCATIONS_CACHED =
+    ConfigBuilder("spark.shuffle.push.retainedMergerLocations")
+      .doc("Max number of shuffle services hosts info cached to determine the locations of" +
+        " shuffle services when pushing the blocks.")
+      .intConf
+      .createWithDefault(500)
+
+  private[spark] val MERGER_LOCATIONS_MIN_THRESHOLD_RATIO =
+    ConfigBuilder("spark.shuffle.push.mergerLocations.minThresholdRatio")
+      .doc("Minimum percentage of shuffle services (merger locations) should be available with" +
+        " respect to numPartitions in order to enable push based shuffle for a stage.")
+      .doubleConf
+      .createWithDefault(0.05)
+
+  private[spark] val MERGER_LOCATIONS_MIN_STATIC_THRESHOLD =
+    ConfigBuilder("spark.shuffle.push.mergerLocations.minStaticThreshold")
+      .doc("Minimum number of shuffle services (merger locations) should be available in order" +
+        "to enable push based shuffle for a stage.")
+      .doubleConf
+      .createWithDefault(5)
 }

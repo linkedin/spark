@@ -1600,7 +1600,7 @@ private[spark] class DAGScheduler(
       // NOTE: This is a defensive check to post finalize event if numMergers is 0 (i.e. no shuffle
       // service available).
       if (numMergers == 0) {
-        eventProcessLoop.post(ShuffleMergeFinalized(stage))
+        eventProcessLoop.post(ShuffleMergeFinalized(shuffleId))
         return
       }
 

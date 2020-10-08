@@ -21,15 +21,14 @@ import java.util.Properties
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 
-import scala.annotation.meta.param
-import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet, Map}
-import scala.util.control.NonFatal
-import org.mockito.Mockito.spy
-import org.mockito.Mockito.times
-import org.mockito.Mockito.verify
+import org.mockito.Mockito.{mock, spy, times, verify}
 import org.scalatest.concurrent.{Signaler, ThreadSignaler, TimeLimits}
 import org.scalatest.exceptions.TestFailedException
 import org.scalatest.time.SpanSugar._
+
+import scala.annotation.meta.param
+import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet, Map}
+import scala.util.control.NonFatal
 import org.apache.spark._
 import org.apache.spark.broadcast.BroadcastManager
 import org.apache.spark.executor.ExecutorMetrics
@@ -41,7 +40,8 @@ import org.apache.spark.scheduler.SchedulingMode.SchedulingMode
 import org.apache.spark.scheduler.local.LocalSchedulerBackend
 import org.apache.spark.shuffle.{FetchFailedException, MetadataFetchFailedException}
 import org.apache.spark.storage.{BlockId, BlockManagerId, BlockManagerMaster}
-import org.apache.spark.util.{AccumulatorContext, AccumulatorV2, CallSite, LongAccumulator, ThreadUtils, Utils}
+import org.apache.spark.util._
+import org.roaringbitmap.RoaringBitmap
 
 class DAGSchedulerEventProcessLoopTester(dagScheduler: DAGScheduler)
   extends DAGSchedulerEventProcessLoop(dagScheduler) {
@@ -266,8 +266,9 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
     override def removeExecutor(execId: String): Unit = {
       // don't need to propagate to the driver, which we don't have
     }
-    override def getAllExecutors: Seq[BlockManagerId] = cacheLocations.values.toSeq.flatten
   }
+
+
 
   /** The list of results that DAGScheduler has collected. */
   val results = new HashMap[Int, Any]()
@@ -334,7 +335,12 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
        */
       override private[scheduler] def scheduleShuffleMergeFinalize(
           shuffleMapStage: ShuffleMapStage): Unit = {
-          handleShuffleMergeFinalized(shuffleMapStage.shuffleDep.shuffleId)
+        for (part <- 0 until shuffleMapStage.shuffleDep.partitioner.numPartitions) {
+          mapOutputTracker.registerMergeResult(shuffleMapStage.shuffleDep.shuffleId, part,
+            makeMergeStatus(""))
+        }
+        shuffleMapStage.shuffleDep.setShuffleMergeFinalized(true)
+        handleShuffleMergeFinalized(shuffleMapStage.shuffleDep.shuffleId)
       }
     }
     dagEventProcessLoopTester = new DAGSchedulerEventProcessLoopTester(scheduler)
@@ -3403,11 +3409,9 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
 
   test("shuffle merge finalization") {
     afterEach()
-    val conf = new SparkConf()
     conf.set("spark.shuffle.push.based.enabled", "true")
     conf.set("spark.shuffle.service.enabled", "true")
     conf.set("spark.master", "pushbasedshuffleclustermanager")
-    init(conf)
     val shuffleMapRdd = new MyRDD(sc, 2, Nil)
     cacheLocations(shuffleMapRdd.id -> 0) = Seq(makeBlockManagerId("hostA"))
     cacheLocations(shuffleMapRdd.id -> 1) = Seq(makeBlockManagerId("hostB"))
@@ -3431,12 +3435,10 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
 
   test("merger locations not empty") {
     afterEach()
-    val conf = new SparkConf()
     conf.set("spark.master", "pushbasedshuffleclustermanager")
     conf.set("spark.shuffle.push.based.enabled", "true")
     conf.set("spark.shuffle.service.enabled", "true")
     conf.set("spark.shuffle.push.mergerLocations.minThreshold", "3")
-    init(conf)
     val parts = 2
 
     val shuffleMapRdd = new MyRDD(sc, parts, Nil)
@@ -3459,12 +3461,10 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
 
   test("merger locations reuse from shuffle dependency") {
     afterEach()
-    val conf = new SparkConf()
     conf.set("spark.master", "pushbasedshuffleclustermanager")
     conf.set("spark.shuffle.push.based.enabled", "true")
     conf.set("spark.shuffle.service.enabled", "true")
     conf.set("spark.shuffle.push.mergerLocations.minThreshold", "3")
-    init(conf)
     val parts = 2
 
     val shuffleMapRdd = new MyRDD(sc, parts, Nil)
@@ -3502,12 +3502,10 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
 
   test("disable shuffle merge due to not enough mergers available") {
     afterEach()
-    val conf = new SparkConf()
     conf.set("spark.master", "pushbasedshuffleclustermanager")
     conf.set("spark.shuffle.push.based.enabled", "true")
     conf.set("spark.shuffle.service.enabled", "true")
     conf.set("spark.shuffle.push.mergerLocations.minThreshold", "6")
-    init(conf)
     val parts = 7
 
     val shuffleMapRdd = new MyRDD(sc, parts, Nil)
@@ -3590,8 +3588,12 @@ object DAGSchedulerSuite {
     BlockManagerId(host + "-exec", host, 12345)
   }
 
+  def makeMergeStatus(host: String, size: Long = 1000): MergeStatus =
+    MergeStatus(makeBlockManagerId(host), mock(classOf[RoaringBitmap]), size)
+}
+
   private class PushBasedSchedulerBackend(conf: SparkConf, scheduler: TaskSchedulerImpl, cores: Int)
-    extends LocalSchedulerBackend(conf, scheduler, cores) {
+      extends LocalSchedulerBackend(conf, scheduler, cores) {
     val mergerLocs = Seq(
       DAGSchedulerSuite.makeBlockManagerId("host1"),
       DAGSchedulerSuite.makeBlockManagerId("host2"),
@@ -3599,7 +3601,9 @@ object DAGSchedulerSuite {
       DAGSchedulerSuite.makeBlockManagerId("host4"),
       DAGSchedulerSuite.makeBlockManagerId("host5"))
 
-    override def getMergerLocations(numPartitions: Int, resourceProfileId: Int): Seq[BlockManagerId] = {
+    override def getMergerLocations(
+        numPartitions: Int,
+        resourceProfileId: Int): Seq[BlockManagerId] = {
       val mergerLocations = Utils.randomize(mergerLocs).take(numPartitions)
       if (mergerLocations.size < numPartitions &&
         mergerLocations.size < conf.getInt("spark.shuffle.push.mergerLocations.minThreshold", 5)) {
@@ -3614,22 +3618,22 @@ object DAGSchedulerSuite {
     def canCreate(masterURL: String): Boolean = masterURL == "pushbasedshuffleclustermanager"
 
     override def createSchedulerBackend(
-      sc: SparkContext,
-      masterURL: String,
-      scheduler: TaskScheduler): SchedulerBackend = {
+        sc: SparkContext,
+        masterURL: String,
+        scheduler: TaskScheduler): SchedulerBackend = {
       new PushBasedSchedulerBackend(sc.conf, scheduler.asInstanceOf[TaskSchedulerImpl], 1)
     }
 
     override def createTaskScheduler(
-      sc: SparkContext,
-      masterURL: String): TaskScheduler = new TaskSchedulerImpl(sc, 1, isLocal = true)
+        sc: SparkContext,
+        masterURL: String): TaskScheduler = new TaskSchedulerImpl(sc, 1, isLocal = true)
 
     override def initialize(scheduler: TaskScheduler, backend: SchedulerBackend): Unit = {
       val sc = scheduler.asInstanceOf[TaskSchedulerImpl]
       sc.initialize(backend)
     }
-}
+  }
 
-object FailThisAttempt {
-  val _fail = new AtomicBoolean(true)
-}
+  object FailThisAttempt {
+    val _fail = new AtomicBoolean(true)
+  }
