@@ -1084,13 +1084,6 @@ class ShuffleBlockFetcherIteratorSuite extends SparkFunSuite with PrivateMethodT
     assert(mergedBlock.size === inputBlocks.map(_.size).sum)
   }
 
-  private def createMockBlockManager = {
-    val blockManager = mock(classOf[BlockManager])
-    val localBmId = BlockManagerId("test-client", "test-client", 1)
-    doReturn(localBmId).when(blockManager).blockManagerId
-    blockManager
-  }
-
   private def createShuffleBlockIteratorWithDefaults(
     shuffleClient: BlockStoreClient,
     blocksByAddress: Seq[(BlockManagerId, Seq[(BlockId, Long, Int)])],

@@ -3409,11 +3409,8 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
   }
 
   test("shuffle merge finalization") {
-    afterEach()
-    val conf = new SparkConf()
     conf.set("spark.shuffle.push.based.enabled", "true")
     conf.set("spark.shuffle.service.enabled", "true")
-    init(conf)
     val parts = 2
     val shuffleMapRdd = new MyRDD(sc, parts, Nil)
     val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(parts))
@@ -3430,11 +3427,8 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
   }
 
   test("metadata fetch failure should not unregister map status") {
-    afterEach()
-    val conf = new SparkConf()
     conf.set("spark.shuffle.push.based.enabled", "true")
     conf.set("spark.shuffle.service.enabled", "true")
-    init(conf)
     val parts = 2
     val shuffleMapRdd = new MyRDD(sc, parts, Nil)
     val shuffleDep = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(parts))
