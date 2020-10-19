@@ -105,4 +105,3 @@ private[scheduler]
 case class UnschedulableTaskSetRemoved(stageId: Int, stageAttemptId: Int)
   extends DAGSchedulerEvent
 
-private[scheduler] case class ShuffleMergeFinalized(shuffleId: Int) extends DAGSchedulerEvent
