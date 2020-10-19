@@ -1260,17 +1260,6 @@ private[spark] class DAGScheduler(
    * active executors tracked by block manager master at the start of the stage.
    */
   private def prepareShuffleServicesForShuffleMapStage(stage: ShuffleMapStage) {
-    // TODO it's best to make this merger selection process pluggable, so we can
-    // TODO delegate to a dedicated service to perform this task. It's not very
-    // TODO ideal to use block manager master to serve this purpose, since the
-    // TODO executors of a Spark application can churn a lot at stage end/start
-    // TODO due to dynamic allocation. We should have a dedicated service that
-    // TODO can monitor the load on the shuffle services and select ones that
-    // TODO are less loaded, and there are more policies that can be explored here.
-    // TODO All of these seems to require a dedicated service outside of Spark.
-    // TODO Making this API pluggable would help to achieve that while also providing
-    // TODO a reasonable default implementation for open source Spark.
-
     // TODO LIHADOOP-55931 - There are cases where reattempt of the stage could still have
     // TODO push based shuffle enabled. This can be thought through further in the future.
     if (stage.shuffleDep.getMergerLocs.isEmpty && stage.shuffleMergeEnabled) {
@@ -1870,16 +1859,6 @@ private[spark] class DAGScheduler(
           }
 
           // TODO: mark the executor as failed only if there were lots of fetch failures on it
-          // TODO how to handle output metadata removal for merge status? Right now, it will
-          // TODO remove all map/merge statuses on the target executor (target host if the
-          // TODO config is turned on). Should we aggressively remove all the metadata? Right
-          // TODO now many of the fetch fails are temporary issues. While it might be fine
-          // TODO to remove the map output status since these maps will be rerun anyway,
-          // TODO aggressively removing all the merge output statuses on that executor/host
-          // TODO might lead to too many of the merge statuses getting unnecessarily removed,
-          // TODO reducing the potential benefits with push based shuffle. Should we just
-          // TODO let client side retry mechanism to handle falling back to fetching original
-          // TODO blocks instead?
           if (bmAddress != null) {
             val externalShuffleServiceEnabled = env.blockManager.externalShuffleServiceEnabled
             val isHostDecommissioned = taskScheduler

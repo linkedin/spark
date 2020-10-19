@@ -18,9 +18,9 @@
 package org.apache.spark.util
 
 import java.io._
-import java.lang.{Byte => JByte}
 import java.lang.management.{LockInfo, ManagementFactory, MonitorInfo, ThreadInfo}
 import java.lang.reflect.InvocationTargetException
+import java.lang.{Byte => JByte}
 import java.math.{MathContext, RoundingMode}
 import java.net._
 import java.nio.ByteBuffer
@@ -28,20 +28,10 @@ import java.nio.channels.{Channels, FileChannel, WritableByteChannel}
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.security.SecureRandom
-import java.util.{Arrays, Locale, Properties, Random, UUID}
-import java.util.concurrent._
 import java.util.concurrent.TimeUnit.NANOSECONDS
+import java.util.concurrent._
 import java.util.zip.GZIPInputStream
-
-import scala.annotation.tailrec
-import scala.collection.JavaConverters._
-import scala.collection.Map
-import scala.collection.mutable.ArrayBuffer
-import scala.io.Source
-import scala.reflect.ClassTag
-import scala.util.{Failure, Success, Try}
-import scala.util.control.{ControlThrowable, NonFatal}
-import scala.util.matching.Regex
+import java.util.{Locale, Properties, Random, UUID}
 
 import _root_.io.netty.channel.unix.Errors.NativeIoException
 import com.google.common.cache.{CacheBuilder, CacheLoader, LoadingCache}
@@ -54,22 +44,31 @@ import org.apache.hadoop.fs.{FileSystem, FileUtil, Path, Trash}
 import org.apache.hadoop.io.compress.{CompressionCodecFactory, SplittableCompressionCodec}
 import org.apache.hadoop.security.UserGroupInformation
 import org.apache.hadoop.yarn.conf.YarnConfiguration
-import org.eclipse.jetty.util.MultiException
-import org.slf4j.Logger
-
 import org.apache.spark._
 import org.apache.spark.deploy.SparkHadoopUtil
-import org.apache.spark.internal.{config, Logging}
-import org.apache.spark.internal.config._
 import org.apache.spark.internal.config.Streaming._
 import org.apache.spark.internal.config.Tests.IS_TESTING
 import org.apache.spark.internal.config.UI._
 import org.apache.spark.internal.config.Worker._
+import org.apache.spark.internal.config._
+import org.apache.spark.internal.{Logging, config}
 import org.apache.spark.launcher.SparkLauncher
 import org.apache.spark.network.util.JavaUtils
 import org.apache.spark.serializer.{DeserializationStream, SerializationStream, SerializerInstance}
 import org.apache.spark.status.api.v1.{StackTrace, ThreadStackTrace}
 import org.apache.spark.util.io.ChunkedByteBufferOutputStream
+import org.eclipse.jetty.util.MultiException
+import org.slf4j.Logger
+
+import scala.annotation.tailrec
+import scala.collection.JavaConverters._
+import scala.collection.Map
+import scala.collection.mutable.ArrayBuffer
+import scala.io.Source
+import scala.reflect.ClassTag
+import scala.util.control.{ControlThrowable, NonFatal}
+import scala.util.matching.Regex
+import scala.util.{Failure, Success, Try}
 
 /** CallSite represents a place in user code. It can have a short and a long form. */
 private[spark] case class CallSite(shortForm: String, longForm: String)
@@ -335,39 +334,6 @@ private[spark] object Utils extends Logging {
     }
 
     dir.getCanonicalFile
-  }
-
-  /**
-   * Create a directory that is writable by the group.
-   * TODO: Find out why can't we create a dir using java api with permission 770
-   *  Files.createDirectories(mergeDir.toPath, PosixFilePermissions.asFileAttribute(
-   *  PosixFilePermissions.fromString("rwxrwx---")))
-   */
-  def createDirWith770(dirToCreate: File): Unit = {
-    var attempts = 0
-    val maxAttempts = MAX_DIR_CREATION_ATTEMPTS
-    var created: File = null
-    while (created == null) {
-      attempts += 1
-      if (attempts > maxAttempts) {
-        throw new IOException(
-          s"Failed to create directory ${dirToCreate.getAbsolutePath} after " +
-              s"${maxAttempts} attempts!")
-      }
-      try {
-        val builder = new ProcessBuilder().command(
-          "mkdir", "-m770", dirToCreate.getAbsolutePath)
-        val proc = builder.start()
-        val exitCode = proc.waitFor()
-        if (dirToCreate.exists()) {
-          created = dirToCreate
-        }
-        logDebug(
-          s"Created directory at ${dirToCreate.getAbsolutePath} and exitCode $exitCode")
-      } catch {
-        case e: SecurityException => created = null;
-      }
-    }
   }
 
   /**
