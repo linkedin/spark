@@ -21,7 +21,7 @@ import scala.collection.mutable.HashSet
 
 import org.apache.spark.{MapOutputTrackerMaster, ShuffleDependency}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.util.{CallSite, Utils}
+import org.apache.spark.util.CallSite
 
 /**
  * ShuffleMapStages are intermediate stages in the execution DAG that produce data for a shuffle.
@@ -77,15 +77,6 @@ private[spark] class ShuffleMapStage(
     _mapStageJobs = _mapStageJobs.filter(_ != job)
   }
 
-  // By default, shuffle merge is enabled for all the stages if push based shuffle is enabled
-  private[this] var _shuffleMergeEnabled = Utils.isPushBasedShuffleEnabled(rdd.sparkContext.getConf)
-
-  def setShuffleMergeEnabled(shuffleMergeEnabled: Boolean): Unit = {
-    _shuffleMergeEnabled = shuffleMergeEnabled
-  }
-
-  def shuffleMergeEnabled : Boolean = _shuffleMergeEnabled
-
   /**
    * Number of partitions that have shuffle outputs.
    * When this reaches [[numPartitions]], this map stage is ready.
@@ -102,7 +93,7 @@ private[spark] class ShuffleMapStage(
    * this stage is finalized, i.e. the shuffle merge results for all partitions are available.
    */
   def isMergeFinalized: Boolean = {
-    if (shuffleMergeEnabled) {
+    if (numPartitions > 0 && shuffleDep.shuffleMergeEnabled) {
       shuffleDep.shuffleMergeFinalized
     } else {
       true

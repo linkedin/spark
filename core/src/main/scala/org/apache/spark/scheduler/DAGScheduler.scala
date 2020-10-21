@@ -1260,9 +1260,9 @@ private[spark] class DAGScheduler(
    * active executors tracked by block manager master at the start of the stage.
    */
   private def prepareShuffleServicesForShuffleMapStage(stage: ShuffleMapStage) {
-    // TODO LIHADOOP-55931 - There are cases where reattempt of the stage could still have
+    // TODO There are cases where reattempt of the stage could still have
     // TODO push based shuffle enabled. This can be thought through further in the future.
-    if (stage.shuffleDep.getMergerLocs.isEmpty && stage.shuffleMergeEnabled) {
+    if (stage.shuffleDep.shuffleMergeEnabled && !stage.shuffleDep.shuffleMergeFinalized) {
       // TODO: Reuse merger locations for sibling stages (for eg: join cases) so that
       // TODO: both the RDD's output will be colocated giving better locality
       val mergerLocs = sc.schedulerBackend.getMergerLocations(
@@ -1270,11 +1270,14 @@ private[spark] class DAGScheduler(
       if (mergerLocs.nonEmpty) {
         stage.shuffleDep.setMergerLocs(mergerLocs)
       } else {
-        stage.setShuffleMergeEnabled(false)
+        stage.shuffleDep.setShuffleMergeEnabled(false)
       }
+    } else {
+      // Disable Shuffle merge for the retry/reuse of the same shuffle dependency
+      stage.shuffleDep.setShuffleMergeEnabled(false)
     }
 
-    if (stage.shuffleMergeEnabled) {
+    if (stage.shuffleDep.shuffleMergeEnabled) {
       logInfo("Shuffle merge enabled for %s (%s) with %d merger locations"
         .format(stage, stage.name, stage.shuffleDep.getMergerLocs.size))
     } else {
@@ -1315,7 +1318,7 @@ private[spark] class DAGScheduler(
         // Only generate merger location for a given shuffle map stage once. This way, even if
         // this stage gets retried, it would still be merging blocks using the same set of
         // shuffle services.
-        if (pushBasedShuffleEnabled && s.shuffleMergeEnabled) {
+        if (pushBasedShuffleEnabled && s.shuffleDep.shuffleMergeEnabled) {
           prepareShuffleServicesForShuffleMapStage(s)
         }
       case s: ResultStage =>

@@ -1934,31 +1934,6 @@ package object config {
       .booleanConf
       .createWithDefault(false)
 
-  private[spark] val PUSH_BASED_SHUFFLE_MERGE_RESULTS_TIMEOUT =
-    ConfigBuilder("spark.shuffle.push.based.merge.results.timeout")
-      .doc("Specify the max amount of time DAGScheduler waits for the merge results from " +
-        "all remote shuffle services for a given shuffle. DAGScheduler will start to submit " +
-        "following stages if not all results are received within the timeout.")
-      .stringConf
-      .createWithDefault("10s")
-
-  private[spark] val PUSH_BASED_SHUFFLE_MERGE_FINALIZE_TIMEOUT =
-    ConfigBuilder("spark.shuffle.push.based.merge.finalize.timeout")
-      .doc("Specify the amount of time DAGScheduler waits after all mappers finish for " +
-        "a given shuffle map stage before it starts sending merge finalize requests to " +
-        "remote shuffle services. This allows the shuffle services some extra time to " +
-        "merge as many blocks as possible.")
-      .stringConf
-      .createWithDefault("10s")
-
-  private[spark] val PUSH_BASED_SHUFFLE_PUSHER_THREADS =
-    ConfigBuilder("spark.shuffle.push.based.pusherThreads")
-      .doc("Specify the number of threads in the block pusher pool. These threads assist  " +
-        "in creating connections and pushing blocks to remote shuffle services when push based " +
-        "shuffle is enabled. By default, the threadpool size is equal to the number of cores")
-      .intConf
-      .createOptional
-
   private[spark] val MAX_MERGER_LOCATIONS_CACHED =
     ConfigBuilder("spark.shuffle.push.retainedMergerLocations")
       .doc("Max number of shuffle services hosts info cached to determine the locations of" +
