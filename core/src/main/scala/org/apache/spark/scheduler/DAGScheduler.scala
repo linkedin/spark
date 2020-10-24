@@ -1260,7 +1260,7 @@ private[spark] class DAGScheduler(
    * active executors tracked by block manager master at the start of the stage.
    */
   private def prepareShuffleServicesForShuffleMapStage(stage: ShuffleMapStage) {
-    if (stage.shuffleDep.shuffleMergeEnabled && !stage.shuffleDep.shuffleMergeFinalized) {
+    if (stage.shuffleDep.shuffleMergeEnabled) {
       val mergerLocs = sc.schedulerBackend.getMergerLocations(
         stage.shuffleDep.partitioner.numPartitions, stage.resourceProfileId)
       if (mergerLocs.nonEmpty) {
