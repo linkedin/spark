@@ -112,12 +112,6 @@ class ShuffleDependency[K: ClassTag, V: ClassTag, C: ClassTag](
    */
   private[this] var _mergerLocs: Seq[BlockManagerId] = Nil
 
-  /**
-   * Stores the information about whether the shuffle merge is finalized for the shuffle map stage
-   * associated with this shuffle dependency
-   */
-  private[this] var _shuffleMergedFinalized: Boolean = false
-
   def setMergerLocs(mergerLocs: Seq[BlockManagerId]): Unit = {
     if (mergerLocs != null && mergerLocs.length > 0) {
       _mergerLocs = mergerLocs
@@ -125,12 +119,6 @@ class ShuffleDependency[K: ClassTag, V: ClassTag, C: ClassTag](
   }
 
   def getMergerLocs: Seq[BlockManagerId] = _mergerLocs
-
-  def setShuffleMergeFinalized(mergeFinalized: Boolean): Unit = {
-    _shuffleMergedFinalized = mergeFinalized
-  }
-
-  def shuffleMergeFinalized : Boolean = _shuffleMergedFinalized
 
   _rdd.sparkContext.cleaner.foreach(_.registerShuffleForCleanup(this))
   _rdd.sparkContext.shuffleDriverComponents.registerShuffle(shuffleId)

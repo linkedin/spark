@@ -1260,11 +1260,7 @@ private[spark] class DAGScheduler(
    * active executors tracked by block manager master at the start of the stage.
    */
   private def prepareShuffleServicesForShuffleMapStage(stage: ShuffleMapStage) {
-    // TODO There are cases where reattempt of the stage could still have
-    // TODO push based shuffle enabled. This can be thought through further in the future.
     if (stage.shuffleDep.shuffleMergeEnabled && !stage.shuffleDep.shuffleMergeFinalized) {
-      // TODO: Reuse merger locations for sibling stages (for eg: join cases) so that
-      // TODO: both the RDD's output will be colocated giving better locality
       val mergerLocs = sc.schedulerBackend.getMergerLocations(
         stage.shuffleDep.partitioner.numPartitions, stage.resourceProfileId)
       if (mergerLocs.nonEmpty) {

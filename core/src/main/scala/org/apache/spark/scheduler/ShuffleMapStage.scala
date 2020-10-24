@@ -88,18 +88,6 @@ private[spark] class ShuffleMapStage(
    */
   def isAvailable: Boolean = numAvailableOutputs == numPartitions
 
-  /**
-   * Retruns true if push based shuffle is disabled for this stage, or if the shuffle merge for
-   * this stage is finalized, i.e. the shuffle merge results for all partitions are available.
-   */
-  def isMergeFinalized: Boolean = {
-    if (numPartitions > 0 && shuffleDep.shuffleMergeEnabled) {
-      shuffleDep.shuffleMergeFinalized
-    } else {
-      true
-    }
-  }
-
   /** Returns the sequence of partition ids that are missing (i.e. needs to be computed). */
   override def findMissingPartitions(): Seq[Int] = {
     mapOutputTrackerMaster
