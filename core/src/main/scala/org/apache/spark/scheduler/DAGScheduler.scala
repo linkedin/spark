@@ -1260,26 +1260,20 @@ private[spark] class DAGScheduler(
    * active executors tracked by block manager master at the start of the stage.
    */
   private def prepareShuffleServicesForShuffleMapStage(stage: ShuffleMapStage) {
-    if (stage.shuffleDep.shuffleMergeEnabled) {
-      val mergerLocs = sc.schedulerBackend.getMergerLocations(
-        stage.shuffleDep.partitioner.numPartitions, stage.resourceProfileId)
-      if (mergerLocs.nonEmpty) {
-        stage.shuffleDep.setMergerLocs(mergerLocs)
-      } else {
-        stage.shuffleDep.setShuffleMergeEnabled(false)
-      }
-    } else {
-      // Disable Shuffle merge for the retry/reuse of the same shuffle dependency
-      stage.shuffleDep.setShuffleMergeEnabled(false)
-    }
+    // TODO: Handle stage reuse/retry cases separately as without finalize changes we cannot
+    // TODO: disable shuffle merge for the retry/reuse cases
+    val mergerLocs = sc.schedulerBackend.getMergerLocations(
+      stage.shuffleDep.partitioner.numPartitions, stage.resourceProfileId)
+    logDebug(s"${stage.shuffleDep.getMergerLocs.map(_.host).mkString(", ")}")
 
-    if (stage.shuffleDep.shuffleMergeEnabled) {
+    if (mergerLocs.nonEmpty) {
+      stage.shuffleDep.setMergerLocs(mergerLocs)
       logInfo("Shuffle merge enabled for %s (%s) with %d merger locations"
         .format(stage, stage.name, stage.shuffleDep.getMergerLocs.size))
     } else {
+      stage.shuffleDep.setShuffleMergeEnabled(false)
       logInfo("Shuffle merge disabled for %s (%s)".format(stage, stage.name))
     }
-    logDebug(s"${stage.shuffleDep.getMergerLocs.map(_.host).mkString(", ")}")
   }
 
   /** Called when stage's parents are available and we can now do its task. */
@@ -1311,10 +1305,10 @@ private[spark] class DAGScheduler(
     stage match {
       case s: ShuffleMapStage =>
         outputCommitCoordinator.stageStart(stage = s.id, maxPartitionId = s.numPartitions - 1)
-        // Only generate merger location for a given shuffle map stage once. This way, even if
+        // Only generate merger location for a given shuffle dependency once. This way, even if
         // this stage gets retried, it would still be merging blocks using the same set of
         // shuffle services.
-        if (pushBasedShuffleEnabled && s.shuffleDep.shuffleMergeEnabled) {
+        if (s.shuffleDep.shuffleMergeEnabled) {
           prepareShuffleServicesForShuffleMapStage(s)
         }
       case s: ResultStage =>
