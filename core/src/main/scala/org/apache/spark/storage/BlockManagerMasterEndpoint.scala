@@ -36,7 +36,6 @@ import org.apache.spark.network.shuffle.ExternalBlockStoreClient
 import org.apache.spark.rpc.{IsolatedRpcEndpoint, RpcCallContext, RpcEndpointAddress, RpcEndpointRef, RpcEnv}
 import org.apache.spark.scheduler._
 import org.apache.spark.scheduler.cluster.{CoarseGrainedClusterMessages, CoarseGrainedSchedulerBackend}
-import org.apache.spark.shuffle.ShuffleMergerDiscovery
 import org.apache.spark.storage.BlockManagerMessages._
 import org.apache.spark.util.{RpcUtils, ThreadUtils, Utils}
 
@@ -53,7 +52,7 @@ class BlockManagerMasterEndpoint(
     externalBlockStoreClient: Option[ExternalBlockStoreClient],
     blockManagerInfo: mutable.Map[BlockManagerId, BlockManagerInfo],
     mapOutputTracker: MapOutputTrackerMaster)
-  extends IsolatedRpcEndpoint with Logging with ShuffleMergerDiscovery {
+  extends IsolatedRpcEndpoint with Logging {
 
   // Mapping from executor id to the block manager's local disk directories.
   private val executorIdToLocalDirs =
@@ -667,18 +666,12 @@ class BlockManagerMasterEndpoint(
     }
   }
 
-  override def getMergerLocations(
+  private def getMergerLocations(
       numMergersNeeded: Int,
       hostsToFilter: Set[String]): Seq[BlockManagerId] = {
-    val shuffleServicesHosts =
-      blockManagerIdByExecutor.values
-        .filter(bm => !hostsToFilter.contains(bm.host))
-        .groupBy(_.host).mapValues(_.head).values.toSeq
-    val mergerLocations = shuffleServicesHosts.map {
-      bm =>
-        BlockManagerId(bm.executorId, bm.host, StorageUtils.externalShuffleServicePort(conf))
-    }
-    Utils.randomize(mergerLocations).take(numMergersNeeded)
+    // Copying the merger locations to a list so that the original mergerLocations won't be shuffled
+    val mergers = mergerLocations.values.filterNot(x => hostsToFilter.contains(x.host)).toSeq
+    Utils.randomize(mergers).take(numMergersNeeded)
   }
 
   /**
