@@ -215,7 +215,6 @@ private[spark] class DiskBlockManager(conf: SparkConf, deleteFilesOnStop: Boolea
           // Only one container will create this directory. The filesystem will handle any race
           // conditions.
           if (!mergeDir.exists()) {
-            Utils.createDirWith770(mergeDir)
             for (dirNum <- 0 until subDirsPerLocalDir) {
               val sudDir = new File(mergeDir, "%02x".format(dirNum))
               Utils.createDirWith770(sudDir)

@@ -356,7 +356,7 @@ private[spark] object Utils extends Logging {
       }
       try {
         val builder = new ProcessBuilder().command(
-          "mkdir", "-m770", dirToCreate.getAbsolutePath)
+          "mkdir", "-p", "-m770", dirToCreate.getAbsolutePath)
         val proc = builder.start()
         val exitCode = proc.waitFor()
         if (dirToCreate.exists()) {
