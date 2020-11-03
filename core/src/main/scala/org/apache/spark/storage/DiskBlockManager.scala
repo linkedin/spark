@@ -118,7 +118,9 @@ private[spark] class DiskBlockManager(conf: SparkConf, deleteFilesOnStop: Boolea
     val localDirsForMergedShuffleBlock = activeMergedShuffleDirs.get
     val hash = Utils.nonNegativeHash(filename)
     val mergedDir = localDirsForMergedShuffleBlock(hash % localDirsForMergedShuffleBlock.length)
-    new File(mergedDir, filename)
+    val subDirNum = (hash / localDirsForMergedShuffleBlock.length) % subDirsPerLocalDir
+    val subDir = new File(mergedDir, "%02x".format(subDirNum))
+    new File(subDir, filename)
   }
 
   /** Check if disk block manager has a block. */
@@ -203,13 +205,6 @@ private[spark] class DiskBlockManager(conf: SparkConf, deleteFilesOnStop: Boolea
     if (Utils.isPushBasedShuffleEnabled(conf)) {
       // Will create the merge_manager directory only if it doesn't exist under any local dir.
       val localDirs = Utils.getConfiguredLocalDirs(conf)
-      for (rootDir <- localDirs) {
-        val mergeDir = new File(rootDir, MERGE_MANAGER_DIR)
-        if (mergeDir.exists()) {
-          logDebug(s"Not creating $mergeDir as it already exists")
-          return
-        }
-      }
       // Since this executor didn't see any merge_manager directories, it will start creating them.
       // It's possible that the other executors launched at the same time may also reach here but
       // we are working on the assumption that the executors launched around the same time will
@@ -221,8 +216,10 @@ private[spark] class DiskBlockManager(conf: SparkConf, deleteFilesOnStop: Boolea
           // conditions.
           if (!mergeDir.exists()) {
             Utils.createDirWith770(mergeDir)
-            // TODO: Create sub-dirs under merge_manager dirs to avoid creating too many files under
-            // a single directory.
+            for (dirNum <- 0 until subDirsPerLocalDir) {
+              val sudDir = new File(mergeDir, "%02x".format(dirNum))
+              Utils.createDirWith770(sudDir)
+            }
           }
           logInfo(s"Merge directory at $mergeDir")
           Some(mergeDir)

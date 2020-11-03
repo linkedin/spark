@@ -25,9 +25,8 @@ import org.roaringbitmap.RoaringBitmap;
 
 import org.apache.spark.network.protocol.Encoders;
 
-
 /**
- * Result returned by an ExternalShuffleService to a scheduler. This represents the result
+ * Result returned by an ExternalShuffleService to the DAGScheduler. This represents the result
  * of all the remote shuffle block merge operations performed by an ExternalShuffleService
  * for a given shuffle ID. It includes the shuffle ID, an array of bitmaps each representing
  * the set of mapper partition blocks that are merged for a given reducer partition, an array
@@ -70,7 +69,7 @@ public class MergeStatuses extends BlockTransferMessage {
   public int hashCode() {
     int objectHashCode = Objects.hashCode(shuffleId);
     return (objectHashCode * 41 + Arrays.hashCode(reduceIds) * 41
-        + Arrays.hashCode(bitmaps) * 41 + Arrays.hashCode(sizes));
+      + Arrays.hashCode(bitmaps) * 41 + Arrays.hashCode(sizes));
   }
 
   @Override
@@ -86,9 +85,9 @@ public class MergeStatuses extends BlockTransferMessage {
     if (other != null && other instanceof MergeStatuses) {
       MergeStatuses o = (MergeStatuses) other;
       return Objects.equal(shuffleId, o.shuffleId)
-          && Arrays.equals(bitmaps, o.bitmaps)
-          && Arrays.equals(reduceIds, o.reduceIds)
-          && Arrays.equals(sizes, o.sizes);
+        && Arrays.equals(bitmaps, o.bitmaps)
+        && Arrays.equals(reduceIds, o.reduceIds)
+        && Arrays.equals(sizes, o.sizes);
     }
     return false;
   }
@@ -96,9 +95,9 @@ public class MergeStatuses extends BlockTransferMessage {
   @Override
   public int encodedLength() {
     return 4 // int
-        + Encoders.BitmapArrays.encodedLength(bitmaps)
-        + Encoders.IntArrays.encodedLength(reduceIds)
-        + Encoders.LongArrays.encodedLength(sizes);
+      + Encoders.BitmapArrays.encodedLength(bitmaps)
+      + Encoders.IntArrays.encodedLength(reduceIds)
+      + Encoders.LongArrays.encodedLength(sizes);
   }
 
   @Override

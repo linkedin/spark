@@ -28,19 +28,17 @@ import java.util.concurrent.Future;
 
 import com.codahale.metrics.MetricSet;
 import com.google.common.collect.Lists;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import org.apache.spark.network.TransportContext;
+import org.apache.spark.network.buffer.ManagedBuffer;
 import org.apache.spark.network.client.MergedBlockMetaResponseCallback;
 import org.apache.spark.network.client.RpcResponseCallback;
 import org.apache.spark.network.client.TransportClient;
 import org.apache.spark.network.client.TransportClientBootstrap;
-import org.apache.spark.network.shuffle.protocol.*;
-import org.apache.spark.network.TransportContext;
-import org.apache.spark.network.buffer.ManagedBuffer;
 import org.apache.spark.network.crypto.AuthClientBootstrap;
 import org.apache.spark.network.sasl.SecretKeyHolder;
 import org.apache.spark.network.server.NoOpRpcHandler;
+import org.apache.spark.network.shuffle.protocol.*;
 import org.apache.spark.network.util.TransportConf;
 
 /**
@@ -49,7 +47,6 @@ import org.apache.spark.network.util.TransportConf;
  * (via BlockTransferService), which has the downside of losing the data if we lose the executors.
  */
 public class ExternalBlockStoreClient extends BlockStoreClient {
-  private static final Logger logger = LoggerFactory.getLogger(ExternalBlockStoreClient.class);
   private static final ErrorHandler PUSH_ERROR_HANDLER = new ErrorHandler.BlockPushErrorHandler();
 
   private final TransportConf conf;
@@ -99,12 +96,12 @@ public class ExternalBlockStoreClient extends BlockStoreClient {
     try {
       int maxRetries = conf.maxIORetries();
       RetryingBlockFetcher.BlockFetchStarter blockFetchStarter =
-          (blockIds1, listener1) -> {
+          (inputBlockId, inputListener) -> {
             // Unless this client is closed.
             if (clientFactory != null) {
               TransportClient client = clientFactory.createClient(host, port, maxRetries > 0);
               new OneForOneBlockFetcher(client, appId, execId,
-                blockIds1, listener1, conf, downloadFileManager).start();
+                inputBlockId, inputListener, conf, downloadFileManager).start();
             } else {
               logger.info("This clientFactory was closed. Skipping further block fetch retries.");
             }
@@ -139,12 +136,13 @@ public class ExternalBlockStoreClient extends BlockStoreClient {
     for (int i = 0; i < blockIds.length; i++) {
       buffersWithId.put(blockIds[i], buffers[i]);
     }
-    logger.debug("Push shuffle blocks to {}:{} with {} blocks", host, port, blockIds.length);
+    logger.debug("Push {} shuffle blocks to {}:{}", blockIds.length, host, port);
     try {
       RetryingBlockFetcher.BlockFetchStarter blockPushStarter =
-          (blockIds1, listener1) -> {
+          (inputBlockId, inputListener) -> {
             TransportClient client = clientFactory.createClient(host, port);
-            new OneForOneBlockPusher(client, appId, blockIds1, listener1, buffersWithId).start();
+            new OneForOneBlockPusher(client, appId, inputBlockId, inputListener, buffersWithId)
+              .start();
           };
       int maxRetries = conf.maxIORetries();
       if (maxRetries > 0) {

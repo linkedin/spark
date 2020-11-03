@@ -21,7 +21,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -42,6 +41,7 @@ import org.apache.hadoop.metrics2.impl.MetricsSystemImpl;
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.server.api.*;
+import org.apache.spark.network.shuffle.MergedShuffleFileManager;
 import org.apache.spark.network.util.LevelDBProvider;
 import org.iq80.leveldb.DB;
 import org.iq80.leveldb.DBIterator;
@@ -55,7 +55,6 @@ import org.apache.spark.network.sasl.ShuffleSecretManager;
 import org.apache.spark.network.server.TransportServer;
 import org.apache.spark.network.server.TransportServerBootstrap;
 import org.apache.spark.network.shuffle.ExternalBlockHandler;
-import org.apache.spark.network.shuffle.RemoteBlockPushResolver;
 import org.apache.spark.network.util.TransportConf;
 import org.apache.spark.network.yarn.util.HadoopConfigProvider;
 
@@ -96,12 +95,6 @@ public class YarnShuffleService extends AuxiliaryService {
   static final String STOP_ON_FAILURE_KEY = "spark.yarn.shuffle.stopOnFailure";
   private static final boolean DEFAULT_STOP_ON_FAILURE = false;
 
-  // Used by shuffle merge manager to create merged shuffle files.
-  private static final String YARN_LOCAL_DIRS = "yarn.nodemanager.local-dirs";
-  private static final String MERGE_MANAGER_DIR = "merge_manager";
-  protected static final String MERGE_DIR_RELATIVE_PATH =
-      "usercache/%s/appcache/%s/" + MERGE_MANAGER_DIR;
-
   // just for testing when you want to find an open port
   @VisibleForTesting
   static int boundPort = -1;
@@ -134,8 +127,6 @@ public class YarnShuffleService extends AuxiliaryService {
   // Handles registering executors and opening shuffle blocks
   @VisibleForTesting
   ExternalBlockHandler blockHandler;
-  @VisibleForTesting
-  RemoteBlockPushResolver shuffleMergeManager;
 
   // Where to store & reload executor info for recovering state after an NM restart
   @VisibleForTesting
@@ -182,10 +173,10 @@ public class YarnShuffleService extends AuxiliaryService {
       }
 
       TransportConf transportConf = new TransportConf("shuffle", new HadoopConfigProvider(conf));
-      String[] localDirs = Arrays.stream(conf.getTrimmedStrings(YARN_LOCAL_DIRS)).sorted()
-          .map(dir -> new Path(dir).toUri().getPath()).toArray(String[]::new);
-      shuffleMergeManager = new RemoteBlockPushResolver(transportConf, localDirs);
-      blockHandler = new ExternalBlockHandler(transportConf, registeredExecutorFile, shuffleMergeManager);
+      MergedShuffleFileManager shuffleMergeManager = newMergedShuffleFileManagerInstance(
+        transportConf);
+      blockHandler = new ExternalBlockHandler(
+        transportConf, registeredExecutorFile, shuffleMergeManager);
 
       // If authentication is enabled, set up the shuffle server to use a
       // special RPC handler that filters out unauthenticated fetch requests
@@ -229,6 +220,23 @@ public class YarnShuffleService extends AuxiliaryService {
       } else {
         noteFailure(e);
       }
+    }
+  }
+
+  @VisibleForTesting
+  static MergedShuffleFileManager newMergedShuffleFileManagerInstance(TransportConf conf) {
+    String mergeManagerImplClassName = conf.mergedShuffleFileManagerImpl();
+    try {
+      Class<?> mergeManagerImplClazz = Class.forName(
+        mergeManagerImplClassName, true, Thread.currentThread().getContextClassLoader());
+      Class<? extends MergedShuffleFileManager> mergeManagerSubClazz =
+        mergeManagerImplClazz.asSubclass(MergedShuffleFileManager.class);
+      // The assumption is that all the custom implementations just like the RemoteBlockPushResolver
+      // will also need the transport configuration.
+      return mergeManagerSubClazz.getConstructor(TransportConf.class).newInstance(conf);
+    } catch (Exception e) {
+      logger.error("Unable to create an instance of {}", mergeManagerImplClassName);
+      return new ExternalBlockHandler.NoOpMergedShuffleFileManager(conf);
     }
   }
 
@@ -289,8 +297,6 @@ public class YarnShuffleService extends AuxiliaryService {
         }
         secretManager.registerApp(appId, shuffleSecret);
       }
-      shuffleMergeManager.registerApplication(
-          appId, String.format(MERGE_DIR_RELATIVE_PATH, context.getUser(), appId));
     } catch (Exception e) {
       logger.error("Exception when initializing application {}", appId, e);
     }
@@ -312,9 +318,6 @@ public class YarnShuffleService extends AuxiliaryService {
         secretManager.unregisterApp(appId);
       }
       blockHandler.applicationRemoved(appId, false /* clean up local dirs */);
-      // Set cleanupLocalDirs to false as these merged shuffle files should be deleted
-      // by yarn when the app finishes in Hadoop 2.10
-      shuffleMergeManager.applicationRemoved(appId, false);
     } catch (Exception e) {
       logger.error("Exception when stopping application {}", appId, e);
     }

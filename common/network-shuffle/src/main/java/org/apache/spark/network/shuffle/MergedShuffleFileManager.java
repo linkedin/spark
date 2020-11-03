@@ -21,6 +21,7 @@ import java.io.IOException;
 
 import org.apache.spark.network.buffer.ManagedBuffer;
 import org.apache.spark.network.client.StreamCallbackWithID;
+import org.apache.spark.network.shuffle.protocol.ExecutorShuffleInfo;
 import org.apache.spark.network.shuffle.protocol.FinalizeShuffleMerge;
 import org.apache.spark.network.shuffle.protocol.MergeStatuses;
 import org.apache.spark.network.shuffle.protocol.PushBlockStream;
@@ -28,11 +29,11 @@ import org.apache.spark.network.shuffle.protocol.PushBlockStream;
 
 /**
  * The MergedShuffleFileManager is used to process push based shuffle when enabled. It works
- * along side {@link ExternalShuffleBlockHandler} and serves as an RPCHandler for
+ * along side {@link ExternalBlockHandler} and serves as an RPCHandler for
  * {@link org.apache.spark.network.server.RpcHandler#receiveStream}, where it processes the
  * remotely pushed streams of shuffle blocks to merge them into merged shuffle files. Right
- * now, push based shuffle can only be enabled when external shuffle service in YARN mode
- * is used.
+ * now, support for push based shuffle is only implemented for external shuffle service in
+ * YARN mode.
  */
 public interface MergedShuffleFileManager {
   /**
@@ -56,17 +57,15 @@ public interface MergedShuffleFileManager {
   MergeStatuses finalizeShuffleMerge(FinalizeShuffleMerge msg) throws IOException;
 
   /**
-   * Registers an application when it starts. This provides the application specific path
-   * so MergedShuffleFileManager knows where to store and look for shuffle data for a
-   * given application. Right now, this is invoked by YarnShuffleService.
+   * Registers an executor with MergedShuffleFileManager. This executor-info provides
+   * the directories and number of sub-dirs per dir so that MergedShuffleFileManager knows where to
+   * store and look for shuffle data for a given application. It is invoked by the RPC call when
+   * executor tries to register with the local shuffle service.
    *
    * @param appId application ID
-   * @param relativeAppPath The relative path which is application unique. The actual directory
-   *                        path is split into 2 parts, where the first half is one of the
-   *                        several configured local dirs that're shared across all applications
-   *                        and the second half is application unique.
+   * @param executorInfo The list of local dirs that this executor gets granted from NodeManager
    */
-  void registerApplication(String appId, String relativeAppPath);
+  void registerExecutor(String appId, ExecutorShuffleInfo executorInfo);
 
   /**
    * Invoked when an application finishes. This cleans up any remaining metadata associated with
@@ -74,9 +73,7 @@ public interface MergedShuffleFileManager {
    *
    * @param appId application ID
    * @param cleanupLocalDirs flag indicating whether MergedShuffleFileManager should handle
-   *                         deletion of local dirs itself. Ideally, we should be able to delegate
-   *                         to YARN to handle local dir deletion in YARN mode. This does not work
-   *                         as expected yet. See LIHADOOP-52202.
+   *                         deletion of local dirs itself.
    */
   void applicationRemoved(String appId, boolean cleanupLocalDirs);
 
@@ -100,4 +97,11 @@ public interface MergedShuffleFileManager {
    * @return meta information of a merged block
    */
   MergedBlockMeta getMergedBlockMeta(String appId, int shuffleId, int reduceId);
+
+  /**
+   * Get the local directories which stores the merged shuffle files.
+   *
+   * @param appId application ID
+   */
+  String[] getMergedBlockDirs(String appId);
 }

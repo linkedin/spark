@@ -25,7 +25,7 @@ import java.util.concurrent.ExecutorService
 import scala.collection.mutable.{ArrayBuffer, HashMap, HashSet, Queue}
 
 import org.apache.spark.{ShuffleDependency, SparkConf, SparkEnv}
-import org.apache.spark.internal.{config, Logging}
+import org.apache.spark.internal.{Logging, config}
 import org.apache.spark.internal.config._
 import org.apache.spark.launcher.SparkLauncher
 import org.apache.spark.network.buffer.{FileSegmentManagedBuffer, ManagedBuffer, NioManagedBuffer}
@@ -35,7 +35,7 @@ import org.apache.spark.network.shuffle.ErrorHandler.BlockPushErrorHandler
 import org.apache.spark.network.util.TransportConf
 import org.apache.spark.scheduler.MapStatus
 import org.apache.spark.shuffle.ShuffleWriter._
-import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockId}
+import org.apache.spark.storage.{BlockId, BlockManagerId, ShuffleBlockId, ShufflePushBlockId}
 import org.apache.spark.util.{ThreadUtils, Utils}
 
 /**
@@ -375,7 +375,7 @@ private[spark] abstract class ShuffleWriter[K, V] extends Logging {
     var blocks = new ArrayBuffer[(BlockId, Long)]
     for (reduceId <- 0 until numPartitions) {
       val blockSize = partitionLengths(reduceId)
-      logDebug(s"Block ${ShuffleBlockId(shuffleId, partitionId, reduceId)} is of size $blockSize")
+      logDebug(s"Block ${ShufflePushBlockId(shuffleId, partitionId, reduceId)} is of size $blockSize")
       // Skip 0-length blocks and blocks that are large enough
       if (blockSize > 0) {
         val mergerId = math.min(math.floor(reduceId * 1.0 / numPartitions * numMergers),
@@ -408,7 +408,7 @@ private[spark] abstract class ShuffleWriter[K, V] extends Logging {
         }
         // Skip blocks exceeding the size limit for push
         if (blockSize <= maxBlockSizeToPush) {
-          blocks += ((ShuffleBlockId(shuffleId, partitionId, reduceId), blockSize))
+          blocks += ((ShufflePushBlockId(shuffleId, partitionId, reduceId), blockSize))
           // Only update currentReqOffset if the current block is the first in the request
           if (currentReqOffset == -1) {
             currentReqOffset = offset

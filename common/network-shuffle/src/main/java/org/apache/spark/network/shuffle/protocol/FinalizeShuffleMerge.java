@@ -22,9 +22,8 @@ import io.netty.buffer.ByteBuf;
 
 import org.apache.spark.network.protocol.Encoders;
 
-
 /**
- * Request to notify external shuffle service to finalize merge for a given shuffle.
+ * Request to finalize merge for a given shuffle.
  * Returns {@link MergeStatuses}
  */
 public class FinalizeShuffleMerge extends BlockTransferMessage {
@@ -51,9 +50,9 @@ public class FinalizeShuffleMerge extends BlockTransferMessage {
   @Override
   public String toString() {
     return Objects.toStringHelper(this)
-        .add("appId", appId)
-        .add("shuffleId", shuffleId)
-        .toString();
+      .add("appId", appId)
+      .add("shuffleId", shuffleId)
+      .toString();
   }
 
   @Override
@@ -61,7 +60,7 @@ public class FinalizeShuffleMerge extends BlockTransferMessage {
     if (other != null && other instanceof FinalizeShuffleMerge) {
       FinalizeShuffleMerge o = (FinalizeShuffleMerge) other;
       return Objects.equal(appId, o.appId)
-          && shuffleId == o.shuffleId;
+        && shuffleId == o.shuffleId;
     }
     return false;
   }

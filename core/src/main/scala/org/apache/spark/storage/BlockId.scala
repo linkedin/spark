@@ -60,6 +60,12 @@ case class ShuffleBlockId(shuffleId: Int, mapId: Long, reduceId: Int) extends Bl
   override def name: String = "shuffle_" + shuffleId + "_" + mapId + "_" + reduceId
 }
 
+
+@DeveloperApi
+case class ShufflePushBlockId(shuffleId: Int, mapIndex: Int, reduceId: Int) extends BlockId {
+  override def name: String = "shufflePush_" + shuffleId + "_" + mapIndex + "_" + reduceId
+}
+
 // The batch id of continuous shuffle blocks of same mapId in range [startReduceId, endReduceId).
 @DeveloperApi
 case class ShuffleBlockBatchId(
@@ -156,6 +162,7 @@ object BlockId {
   val SHUFFLE_BATCH = "shuffle_([0-9]+)_([0-9]+)_([0-9]+)_([0-9]+)".r
   val SHUFFLE_DATA = "shuffle_([0-9]+)_([0-9]+)_([0-9]+).data".r
   val SHUFFLE_INDEX = "shuffle_([0-9]+)_([0-9]+)_([0-9]+).index".r
+  val SHUFFLE_PUSH = "shufflePush_([0-9]+)_([0-9]+)_([0-9]+)".r
   val SHUFFLE_CHUNK = "shuffleChunk_([0-9]+)_([0-9]+)_([0-9]+)".r
   val BROADCAST = "broadcast_([0-9]+)([_A-Za-z0-9]*)".r
   val TASKRESULT = "taskresult_([0-9]+)".r
@@ -171,6 +178,8 @@ object BlockId {
       ShuffleBlockId(shuffleId.toInt, mapId.toLong, reduceId.toInt)
     case SHUFFLE_BATCH(shuffleId, mapId, startReduceId, endReduceId) =>
       ShuffleBlockBatchId(shuffleId.toInt, mapId.toLong, startReduceId.toInt, endReduceId.toInt)
+    case SHUFFLE_PUSH(shuffleId, mapIndex, reduceId) =>
+      ShufflePushBlockId(shuffleId.toInt, mapIndex.toInt, reduceId.toInt)
     case SHUFFLE_CHUNK(shuffleId, reduceId, chunkId) =>
       ShuffleBlockChunkId(shuffleId.toInt, reduceId.toInt, chunkId.toInt)
     case SHUFFLE_DATA(shuffleId, mapId, reduceId) =>

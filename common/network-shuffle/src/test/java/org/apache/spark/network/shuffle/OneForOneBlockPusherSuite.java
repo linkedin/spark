@@ -28,6 +28,7 @@ import io.netty.buffer.Unpooled;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
+import static org.mockito.AdditionalMatchers.*;
 import static org.mockito.Mockito.*;
 
 import org.apache.spark.network.buffer.ManagedBuffer;
@@ -37,7 +38,6 @@ import org.apache.spark.network.client.RpcResponseCallback;
 import org.apache.spark.network.client.TransportClient;
 import org.apache.spark.network.shuffle.protocol.BlockTransferMessage;
 import org.apache.spark.network.shuffle.protocol.PushBlockStream;
-import org.apache.spark.network.util.JavaUtils;
 
 
 public class OneForOneBlockPusherSuite {
@@ -45,82 +45,83 @@ public class OneForOneBlockPusherSuite {
   @Test
   public void testPushOne() {
     LinkedHashMap<String, ManagedBuffer> blocks = Maps.newLinkedHashMap();
-    blocks.put("shuffle_0_0_0", new NioManagedBuffer(ByteBuffer.wrap(new byte[1])));
+    blocks.put("shufflePush_0_0_0", new NioManagedBuffer(ByteBuffer.wrap(new byte[1])));
     String[] blockIds = blocks.keySet().toArray(new String[blocks.size()]);
 
     BlockFetchingListener listener = pushBlocks(
       blocks,
       blockIds,
-      Arrays.asList(new PushBlockStream("app-id", "shuffle_0_0_0", 0)));
+      Arrays.asList(new PushBlockStream("app-id", 0, 0, 0, 0)));
 
-    verify(listener).onBlockFetchSuccess(eq("shuffle_0_0_0"), any());
+    verify(listener).onBlockFetchSuccess(eq("shufflePush_0_0_0"), any());
   }
 
   @Test
   public void testPushThree() {
     LinkedHashMap<String, ManagedBuffer> blocks = Maps.newLinkedHashMap();
-    blocks.put("b0", new NioManagedBuffer(ByteBuffer.wrap(new byte[12])));
-    blocks.put("b1", new NioManagedBuffer(ByteBuffer.wrap(new byte[23])));
-    blocks.put("b2", new NettyManagedBuffer(Unpooled.wrappedBuffer(new byte[23])));
+    blocks.put("shufflePush_0_0_0", new NioManagedBuffer(ByteBuffer.wrap(new byte[12])));
+    blocks.put("shufflePush_0_1_0", new NioManagedBuffer(ByteBuffer.wrap(new byte[23])));
+    blocks.put("shufflePush_0_2_0", new NettyManagedBuffer(Unpooled.wrappedBuffer(new byte[23])));
     String[] blockIds = blocks.keySet().toArray(new String[blocks.size()]);
 
     BlockFetchingListener listener = pushBlocks(
       blocks,
       blockIds,
-      Arrays.asList(new PushBlockStream("app-id", "b0", 0),
-          new PushBlockStream("app-id", "b1", 1),
-          new PushBlockStream("app-id", "b2", 2)));
+      Arrays.asList(new PushBlockStream("app-id", 0, 0, 0, 0),
+        new PushBlockStream("app-id", 0, 1, 0, 1),
+        new PushBlockStream("app-id", 0, 2, 0, 2)));
 
-    for (int i = 0; i < 3; i ++) {
-      verify(listener, times(1)).onBlockFetchSuccess(eq("b" + i), any());
-    }
+    verify(listener, times(1)).onBlockFetchSuccess(eq("shufflePush_0_0_0"), any());
+    verify(listener, times(1)).onBlockFetchSuccess(eq("shufflePush_0_1_0"), any());
+    verify(listener, times(1)).onBlockFetchSuccess(eq("shufflePush_0_2_0"), any());
   }
 
   @Test
   public void testServerFailures() {
     LinkedHashMap<String, ManagedBuffer> blocks = Maps.newLinkedHashMap();
-    blocks.put("b0", new NioManagedBuffer(ByteBuffer.wrap(new byte[12])));
-    blocks.put("b1", new NioManagedBuffer(ByteBuffer.wrap(new byte[0])));
-    blocks.put("b2", new NioManagedBuffer(ByteBuffer.wrap(new byte[0])));
+    blocks.put("shufflePush_0_0_0", new NioManagedBuffer(ByteBuffer.wrap(new byte[12])));
+    blocks.put("shufflePush_0_1_0", new NioManagedBuffer(ByteBuffer.wrap(new byte[0])));
+    blocks.put("shufflePush_0_2_0", new NioManagedBuffer(ByteBuffer.wrap(new byte[0])));
     String[] blockIds = blocks.keySet().toArray(new String[blocks.size()]);
 
     BlockFetchingListener listener = pushBlocks(
-        blocks,
-        blockIds,
-        Arrays.asList(new PushBlockStream("app-id", "b0", 0),
-            new PushBlockStream("app-id", "b1", 1),
-            new PushBlockStream("app-id", "b2", 2)));
+      blocks,
+      blockIds,
+      Arrays.asList(new PushBlockStream("app-id", 0, 0, 0, 0),
+        new PushBlockStream("app-id", 0, 1, 0, 1),
+        new PushBlockStream("app-id", 0, 2, 0, 2)));
 
-    verify(listener, times(1)).onBlockFetchSuccess(eq("b0"), any());
-    verify(listener, times(1)).onBlockFetchFailure(eq("b1"), any());
-    verify(listener, times(1)).onBlockFetchFailure(eq("b2"), any());
+    verify(listener, times(1)).onBlockFetchSuccess(eq("shufflePush_0_0_0"), any());
+    verify(listener, times(1)).onBlockFetchFailure(eq("shufflePush_0_1_0"), any());
+    verify(listener, times(1)).onBlockFetchFailure(eq("shufflePush_0_2_0"), any());
   }
 
   @Test
-  public void testServerClientFailures() {
+  public void testHandlingRetriableFailures() {
     LinkedHashMap<String, ManagedBuffer> blocks = Maps.newLinkedHashMap();
-    blocks.put("b0", new NioManagedBuffer(ByteBuffer.wrap(new byte[12])));
-    blocks.put("b1", new NioManagedBuffer(ByteBuffer.wrap(new byte[0])));
-    blocks.put("b2", null);
+    blocks.put("shufflePush_0_0_0", new NioManagedBuffer(ByteBuffer.wrap(new byte[12])));
+    blocks.put("shufflePush_0_1_0", null);
+    blocks.put("shufflePush_0_2_0", new NioManagedBuffer(ByteBuffer.wrap(new byte[0])));
     String[] blockIds = blocks.keySet().toArray(new String[blocks.size()]);
 
     BlockFetchingListener listener = pushBlocks(
-        blocks,
-        blockIds,
-        Arrays.asList(new PushBlockStream("app-id", "b0", 0),
-            new PushBlockStream("app-id", "b1", 1),
-            new PushBlockStream("app-id", "b2", 2)));
+      blocks,
+      blockIds,
+      Arrays.asList(new PushBlockStream("app-id", 0, 0, 0, 0),
+        new PushBlockStream("app-id", 0, 1, 0, 1),
+        new PushBlockStream("app-id", 0, 2, 0, 2)));
 
-    verify(listener, times(1)).onBlockFetchSuccess(eq("b0"), any());
-    verify(listener, times(1)).onBlockFetchFailure(eq("b0"), any());
-    verify(listener, times(2)).onBlockFetchFailure(eq("b1"), any());
-    verify(listener, times(1)).onBlockFetchFailure(eq("b2"), any());
+    verify(listener, times(1)).onBlockFetchSuccess(eq("shufflePush_0_0_0"), any());
+    verify(listener, times(0)).onBlockFetchSuccess(not(eq("shufflePush_0_0_0")), any());
+    verify(listener, times(0)).onBlockFetchFailure(eq("shufflePush_0_0_0"), any());
+    verify(listener, times(1)).onBlockFetchFailure(eq("shufflePush_0_1_0"), any());
+    verify(listener, times(2)).onBlockFetchFailure(eq("shufflePush_0_2_0"), any());
   }
 
   /**
    * Begins a push on the given set of blocks by mocking the response from server side.
-   * If a block is an empty byte, a server side exception will be thrown.
-   * If a block is null, a client side exception will be thrown.
+   * If a block is an empty byte, a server side retriable exception will be thrown.
+   * If a block is null, a non-retriable exception will be thrown.
    */
   private static BlockFetchingListener pushBlocks(
       LinkedHashMap<String, ManagedBuffer> blocks,
@@ -129,7 +130,7 @@ public class OneForOneBlockPusherSuite {
     TransportClient client = mock(TransportClient.class);
     BlockFetchingListener listener = mock(BlockFetchingListener.class);
     OneForOneBlockPusher pusher =
-        new OneForOneBlockPusher(client, "app-id", blockIds, listener, blocks);
+      new OneForOneBlockPusher(client, "app-id", blockIds, listener, blocks);
 
     Iterator<Map.Entry<String, ManagedBuffer>> blockIterator = blocks.entrySet().iterator();
     Iterator<BlockTransferMessage> msgIterator = expectMessages.iterator();
@@ -142,10 +143,11 @@ public class OneForOneBlockPusherSuite {
       if (block != null && block.nioByteBuffer().capacity() > 0) {
         callback.onSuccess(header);
       } else if (block != null) {
-        callback.onFailure(new RuntimeException(JavaUtils.encodeHeaderIntoErrorString(header,
-            new RuntimeException("Failed " + entry.getKey()))));
+        callback.onFailure(new RuntimeException("Failed " + entry.getKey()
+          + ErrorHandler.BlockPushErrorHandler.BLOCK_APPEND_COLLISION_DETECTED_MSG_PREFIX));
       } else {
-        callback.onFailure(new RuntimeException("Quick fail " + entry.getKey()));
+        callback.onFailure(new RuntimeException("Quick fail " + entry.getKey()
+          + ErrorHandler.BlockPushErrorHandler.TOO_LATE_MESSAGE_SUFFIX));
       }
       assertEquals(msgIterator.next(), message);
       return null;
