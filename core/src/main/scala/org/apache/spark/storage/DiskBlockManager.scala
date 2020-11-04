@@ -205,6 +205,13 @@ private[spark] class DiskBlockManager(conf: SparkConf, deleteFilesOnStop: Boolea
     if (Utils.isPushBasedShuffleEnabled(conf)) {
       // Will create the merge_manager directory only if it doesn't exist under any local dir.
       val localDirs = Utils.getConfiguredLocalDirs(conf)
+      for (rootDir <- localDirs) {
+        val mergeDir = new File(rootDir, MERGE_MANAGER_DIR)
+        if (mergeDir.exists()) {
+          logDebug(s"Not creating $mergeDir as it already exists")
+          return
+        }
+      }
       // Since this executor didn't see any merge_manager directories, it will start creating them.
       // It's possible that the other executors launched at the same time may also reach here but
       // we are working on the assumption that the executors launched around the same time will
@@ -234,7 +241,7 @@ private[spark] class DiskBlockManager(conf: SparkConf, deleteFilesOnStop: Boolea
   }
 
   private def findActiveMergedShuffleDirs(conf: SparkConf): Option[Array[File]] = {
-    Option(Utils.getConfiguredLocalDirs(conf).sorted.map(
+    Option(Utils.getConfiguredLocalDirs(conf).map(
       rootDir => new File(rootDir, "merge_manager")).filter(mergeDir => mergeDir.exists()))
   }
 
