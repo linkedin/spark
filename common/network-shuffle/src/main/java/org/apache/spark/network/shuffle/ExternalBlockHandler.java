@@ -283,6 +283,7 @@ public class ExternalBlockHandler extends RpcHandler
 
   public void close() {
     blockManager.close();
+    mergeManager.close();
   }
 
   private void checkAuth(TransportClient client, String appId) {
