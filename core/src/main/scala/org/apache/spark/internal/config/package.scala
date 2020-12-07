@@ -2193,6 +2193,16 @@ package object config {
       .doubleConf
       .createWithDefault(1.0)
 
+  private[spark] val PUSH_BASED_SHUFFLE_REUSE_MERGER_LOCATIONS =
+    ConfigBuilder("spark.shuffle.push.reuse.merger.locations")
+      .doc("For sibling shuffle map stages, i.e. ones that share common child stages, reusing " +
+        "merger locations between them can help to further increase shuffle locality ratio " +
+        "when push based shuffle is enabled. Examples include joins where the reduce stage " +
+        "needs to fetch shuffle data from multiple parent shuffle map stages. Set to 'true' " +
+        "to enable this feature.")
+      .booleanConf
+      .createWithDefault(true)
+
   private[spark] val JAR_IVY_REPO_PATH =
     ConfigBuilder("spark.jars.ivy")
       .doc("Path to specify the Ivy user directory, used for the local Ivy cache and " +
