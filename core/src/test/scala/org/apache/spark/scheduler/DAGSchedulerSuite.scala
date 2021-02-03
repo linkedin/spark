@@ -3875,6 +3875,52 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
     assertDataStructuresEmpty()
   }
 
+  test("Retry of failed stage reuses previous merger locations and is still merge enabled") {
+    initPushBasedShuffleConfs(conf)
+    conf.set(config.SHUFFLE_MERGER_LOCATIONS_MIN_STATIC_THRESHOLD, 10)
+    DAGSchedulerSuite.clearMergerLocs
+    val parts = 20
+    val hosts = (1 to parts).map {x => s"Host$x" }
+    DAGSchedulerSuite.addMergerLocs(hosts)
+
+    val shuffleMapRdd = new MyRDD(sc, parts, Nil)
+    val shuffleDep1 = new ShuffleDependency(shuffleMapRdd, new HashPartitioner(parts))
+    val reduceRdd = new MyRDD(sc, parts, List(shuffleDep1), tracker = mapOutputTracker)
+    val shuffleDep2 = new ShuffleDependency(reduceRdd, new HashPartitioner(parts))
+    val resultRdd = new MyRDD(sc, parts, List(shuffleDep2), tracker = mapOutputTracker)
+    val partitions = (0 until parts).toArray
+    submit(resultRdd, partitions)
+
+    completeShuffleMapStageSuccessfully(0, 0, parts)
+    val shuffleStage0a = scheduler.stageIdToStage(0).asInstanceOf[ShuffleMapStage]
+    assert(shuffleStage0a.shuffleDep.shuffleMergeEnabled)
+
+    // Trigger fetch failure in stage 1
+    completeNextStageWithFetchFailure(1, 0, shuffleDep1)
+    val shuffleStage1a = scheduler.stageIdToStage(1).asInstanceOf[ShuffleMapStage]
+    val mergerLocs1 = shuffleStage1a.shuffleDep.getMergerLocs
+    assert(shuffleStage1a.shuffleDep.shuffleMergeEnabled)
+    scheduler.resubmitFailedStages()
+
+    // Retry of stage 0 should be merge disabled, because stage 0 is already merge finalized
+    completeShuffleMapStageSuccessfully(0, 1, parts)
+    val shuffleStage0b = scheduler.stageIdToStage(0).asInstanceOf[ShuffleMapStage]
+    assert(!shuffleStage0b.shuffleDep.shuffleMergeEnabled)
+
+    // Retry of stage 1 should be merge enabled, because stage 1 hasn't been merge finalized
+    // yet. In addition, it should reuse the merger location from the previous attempt.
+    completeShuffleMapStageSuccessfully(1, 1, parts)
+    val shuffleStage1b = scheduler.stageIdToStage(1).asInstanceOf[ShuffleMapStage]
+    val mergerLocs2 = shuffleStage1b.shuffleDep.getMergerLocs
+    assert(shuffleStage1b.shuffleDep.shuffleMergeEnabled)
+    assert(mergerLocs1.zip(mergerLocs2).forall(x => x._1.host == x._2.host))
+    completeNextResultStageWithSuccess(2, 0, idx => idx + 1234)
+
+    val expected = (0 until parts).map(idx => (idx, idx + 1234))
+    assert(results === expected.toMap)
+    assertDataStructuresEmpty()
+  }
+
   /**
    * Assert that the supplied TaskSet has exactly the given hosts as its preferred locations.
    * Note that this checks only the host and not the executor ID.
