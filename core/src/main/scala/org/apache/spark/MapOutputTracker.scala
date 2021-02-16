@@ -142,6 +142,8 @@ private class ShuffleStatus(
    */
   private[this] var _numAvailableMergeResults: Int = 0
 
+  private[this] var mergers: Seq[BlockManagerId] = Seq.empty[BlockManagerId]
+
   /**
    * Register a map output. If there is already a registered location for the map output then it
    * will be replaced by the new location.
@@ -209,6 +211,12 @@ private class ShuffleStatus(
       invalidateSerializedMergeOutputStatusCache()
     }
     mergeStatuses(reduceId) = status
+  }
+
+  def addShuffleMergerLocations(shuffleMergers: Seq[BlockManagerId]): Unit = withWriteLock {
+    if (mergers.isEmpty) {
+      mergers = shuffleMergers
+    }
   }
 
   // TODO support updateMergeResult for similar use cases as updateMapOutput
@@ -390,6 +398,10 @@ private class ShuffleStatus(
     f(mergeStatuses)
   }
 
+  def getShufflePushMergerLocations: Seq[BlockManagerId] = withReadLock {
+    mergers
+  }
+
   /**
    * Clears the cached serialized map output statuses.
    */
@@ -427,12 +439,16 @@ private[spark] case class GetMapOutputStatuses(shuffleId: Int)
   extends MapOutputTrackerMessage
 private[spark] case class GetMapAndMergeResultStatuses(shuffleId: Int)
   extends MapOutputTrackerMessage
+private[spark] case class GetShufflePushMergerLocations(shuffleId: Int)
+  extends MapOutputTrackerMessage
 private[spark] case object StopMapOutputTracker extends MapOutputTrackerMessage
 
 private[spark] sealed trait MapOutputTrackerMasterMessage
 private[spark] case class GetMapOutputMessage(shuffleId: Int,
   context: RpcCallContext) extends MapOutputTrackerMasterMessage
 private[spark] case class GetMapAndMergeOutputMessage(shuffleId: Int,
+  context: RpcCallContext) extends MapOutputTrackerMasterMessage
+private[spark] case class GetShuffleMergersMessage(shuffleId: Int,
   context: RpcCallContext) extends MapOutputTrackerMasterMessage
 
 /** RpcEndpoint class for MapOutputTrackerMaster */
@@ -452,6 +468,12 @@ private[spark] class MapOutputTrackerMasterEndpoint(
       val hostPort = context.senderAddress.hostPort
       logInfo(s"Asked to send map/merge result locations for shuffle $shuffleId to $hostPort")
       tracker.post(GetMapAndMergeOutputMessage(shuffleId, context))
+
+    case GetShufflePushMergerLocations(shuffleId: Int) =>
+      val hostPort = context.senderAddress.hostPort
+      logInfo(s"Asked to send shuffle push merger locations for shuffle" +
+        s" $shuffleId to $hostPort")
+      tracker.post(GetShuffleMergersMessage(shuffleId, context))
 
     case StopMapOutputTracker =>
       logInfo("MapOutputTrackerMasterEndpoint stopped!")
@@ -562,6 +584,16 @@ private[spark] abstract class MapOutputTracker(conf: SparkConf) extends Logging 
       shuffleId: Int,
       partitionId: Int,
       chunkBitmap: RoaringBitmap): Iterator[(BlockManagerId, Seq[(BlockId, Long, Int)])]
+
+  /**
+   * Called from executors whenever a task with push based shuffle is enabled doesn't have merger
+   * locations available. This typically happens when the initial stages don't have enough shuffle
+   * mergers due to not enough available executors at that time. This is on a best effort basis,
+   * if there is not enough shuffle mergers available for this stage then an empty sequence would
+   * be returned indicating the task to avoid shuffle push.
+   * @param shuffleId
+   */
+  def getShufflePushMergerLocations(shuffleId: Int): Seq[BlockManagerId]
 
   /**
    * Deletes map output status information for the specified shuffle stage.
@@ -678,6 +710,12 @@ private[spark] class MapOutputTrackerMaster(
                 handleStatusMessage(shuffleId, context, false)
               case GetMapAndMergeOutputMessage(shuffleId, context) =>
                 handleStatusMessage(shuffleId, context, true)
+              case GetShuffleMergersMessage(shuffleId, context) =>
+                val hostPort = context.senderAddress.hostPort
+                logDebug("Handling request to send shuffle push merger locations for shuffle "
+                  + shuffleId + " to " + hostPort)
+                context.reply(shuffleStatuses.get(shuffleId).map(_.getShufflePushMergerLocations)
+                  .getOrElse(Seq.empty[BlockManagerId]))
             }
           } catch {
             case NonFatal(e) => logError(e.getMessage, e)
@@ -754,6 +792,12 @@ private[spark] class MapOutputTrackerMaster(
     statuses.foreach {
       case (reduceId, status) => registerMergeResult(shuffleId, reduceId, status)
     }
+  }
+
+  def registerShufflePushMergerLocations(
+      shuffleId: Int,
+      shuffleMergers: Seq[BlockManagerId]): Unit = {
+    shuffleStatuses(shuffleId).addShuffleMergerLocations(shuffleMergers)
   }
 
   /**
@@ -1096,6 +1140,11 @@ private[spark] class MapOutputTrackerMaster(
     Seq.empty.toIterator
   }
 
+  // This method is only called in local-mode.
+  override def getShufflePushMergerLocations(shuffleId: Int): Seq[BlockManagerId] = {
+    shuffleStatuses(shuffleId).getShufflePushMergerLocations
+  }
+
   override def stop(): Unit = {
     mapOutputTrackerMasterMessages.offer(PoisonPill)
     threadpool.shutdown()
@@ -1125,6 +1174,9 @@ private[spark] class MapOutputTrackerWorker(conf: SparkConf) extends MapOutputTr
     new ConcurrentHashMap[Int, Array[MergeStatus]]().asScala
 
   private val fetchMergeResult = Utils.isPushBasedShuffleEnabled(conf)
+
+  // Exposed for testing
+  val shufflePushMergerLocations = new ConcurrentHashMap[Int, Seq[BlockManagerId]]().asScala
 
   /**
    * A [[KeyLock]] whose key is a shuffle id to ensure there is only one thread fetching
@@ -1198,6 +1250,21 @@ private[spark] class MapOutputTrackerWorker(conf: SparkConf) extends MapOutputTr
         mapStatuses.clear()
         mergeStatuses.clear()
         throw e
+    }
+  }
+
+  override def getShufflePushMergerLocations(shuffleId: Int): Seq[BlockManagerId] = {
+    shufflePushMergerLocations.get(shuffleId).getOrElse(getMergerLocations(shuffleId))
+  }
+
+  private def getMergerLocations(shuffleId: Int): Seq[BlockManagerId] = {
+    // TODO: In 3.1, this can be locked in a fine grained manner using KeyLock
+    val mergers = askTracker[Seq[BlockManagerId]](GetShufflePushMergerLocations(shuffleId))
+    if (mergers.nonEmpty) {
+      shufflePushMergerLocations(shuffleId) = mergers
+      mergers
+    } else {
+      Seq.empty[BlockManagerId]
     }
   }
 
@@ -1283,6 +1350,7 @@ private[spark] class MapOutputTrackerWorker(conf: SparkConf) extends MapOutputTr
   def unregisterShuffle(shuffleId: Int): Unit = {
     mapStatuses.remove(shuffleId)
     mergeStatuses.remove(shuffleId)
+    shufflePushMergerLocations.remove(shuffleId)
   }
 
   /**

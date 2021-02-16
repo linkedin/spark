@@ -1318,19 +1318,24 @@ private[spark] class DAGScheduler(
   private def prepareShuffleServicesForShuffleMapStage(stage: ShuffleMapStage): Unit = {
     assert(stage.shuffleDep.shuffleMergeEnabled && !stage.shuffleDep.shuffleMergeFinalized)
     if (stage.shuffleDep.getMergerLocs.isEmpty) {
+      getAndSetShufflePushMergerLocations(stage)
+    }
+  }
+
+  private def getAndSetShufflePushMergerLocations(stage: ShuffleMapStage): Seq[BlockManagerId] = {
+    if (stage.shuffleDep.getMergerLocs.isEmpty && !stage.shuffleDep.shuffleMergeFinalized) {
       val mergerLocs = sc.schedulerBackend.getShufflePushMergerLocations(
         stage.shuffleDep.partitioner.numPartitions, stage.resourceProfileId)
       if (mergerLocs.nonEmpty) {
         stage.shuffleDep.setMergerLocs(mergerLocs)
-        logInfo(s"Push-based shuffle enabled for $stage (${stage.name}) with" +
-          s" ${stage.shuffleDep.getMergerLocs.size} merger locations")
-
-        logDebug("List of shuffle push merger locations " +
-          s"${stage.shuffleDep.getMergerLocs.map(_.host).mkString(", ")}")
+        stage.shuffleDep.setShuffleMergeEnabled(true)
       } else {
         stage.shuffleDep.setShuffleMergeEnabled(false)
-        logInfo("Push-based shuffle disabled for $stage (${stage.name})")
       }
+      logDebug(s"${stage.shuffleDep.getMergerLocs.map(_.host).mkString(", ")}")
+      mergerLocs
+    } else {
+      stage.shuffleDep.getMergerLocs
     }
   }
 
@@ -1369,6 +1374,8 @@ private[spark] class DAGScheduler(
         if (s.shuffleDep.shuffleMergeEnabled) {
           if (!s.shuffleDep.shuffleMergeFinalized) {
             prepareShuffleServicesForShuffleMapStage(s)
+            logInfo(("Shuffle merge enabled before starting the stage for %s (%s) with %d" +
+              " merger locations").format(s, s.name, s.shuffleDep.getMergerLocs.size))
           } else {
             // Disable Shuffle merge for the retry/reuse of the same shuffle dependency if it has
             // already been merge finalized. If the shuffle dependency was previously assigned
@@ -1378,6 +1385,9 @@ private[spark] class DAGScheduler(
             logInfo("Push-based shuffle disabled for $stage (${stage.name}) since it" +
               " is already shuffle merge finalized")
           }
+        } else {
+          logInfo(("Shuffle merge disabled for %s (%s), but can get enabled later" +
+            " adaptively once enough mergers are available").format(s, s.name))
         }
       case s: ResultStage =>
         outputCommitCoordinator.stageStart(
@@ -2397,6 +2407,18 @@ private[spark] class DAGScheduler(
       executorFailureEpoch -= execId
     }
     shuffleFileLostEpoch -= execId
+
+    if (pushBasedShuffleEnabled) {
+      shuffleIdToMapStage.filter(_._2.shuffleDep.getMergerLocs.isEmpty)
+        .foreach { case(_, stage: ShuffleMapStage) =>
+          if (getAndSetShufflePushMergerLocations(stage).nonEmpty) {
+            logInfo(s"Shuffle merge enabled adaptively for the stage $stage (${stage.name})" +
+              s" with ${stage.shuffleDep.getMergerLocs.size} merger locations")
+            mapOutputTracker.registerShufflePushMergerLocations(
+              stage.shuffleDep.shuffleId, stage.shuffleDep.getMergerLocs)
+          }
+        }
+    }
   }
 
   private[scheduler] def handleStageCancellation(stageId: Int, reason: Option[String]): Unit = {
@@ -2450,7 +2472,7 @@ private[spark] class DAGScheduler(
       stage.latestInfo.stageFailed(errorMessage.get)
       logInfo(s"$stage (${stage.name}) failed in $serviceTime s due to ${errorMessage.get}")
     }
-
+    updateStageInfoForPushBasedShuffle(stage)
     if (!willRetry) {
       outputCommitCoordinator.stageEnd(stage.id)
     }
@@ -2473,11 +2495,23 @@ private[spark] class DAGScheduler(
     val dependentJobs: Seq[ActiveJob] =
       activeJobs.filter(job => stageDependsOn(job.finalStage, failedStage)).toSeq
     failedStage.latestInfo.completionTime = Some(clock.getTimeMillis())
+    updateStageInfoForPushBasedShuffle(failedStage)
     for (job <- dependentJobs) {
       failJobAndIndependentStages(job, s"Job aborted due to stage failure: $reason", exception)
     }
     if (dependentJobs.isEmpty) {
       logInfo("Ignoring failure of " + failedStage + " because all jobs depending on it are done")
+    }
+  }
+
+  private def updateStageInfoForPushBasedShuffle(stage: Stage): Unit = {
+    // With adaptive shuffle mergers, StageInfo's
+    // isPushBasedShuffleEnabled and shuffleMergers need to be updated at the end.
+    stage match {
+      case s: ShuffleMapStage =>
+        stage.latestInfo.setPushBasedShuffleEnabled(s.shuffleDep.getMergerLocs.nonEmpty)
+        stage.latestInfo.setShuffleMergerCount(s.shuffleDep.getMergerLocs.size)
+      case _ =>
     }
   }
 
