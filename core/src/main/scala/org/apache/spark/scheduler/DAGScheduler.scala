@@ -1734,7 +1734,7 @@ private[spark] class DAGScheduler(
 
             if (runningStages.contains(shuffleStage) && shuffleStage.pendingPartitions.isEmpty) {
               if (!shuffleStage.shuffleDep.shuffleMergeFinalized &&
-                shuffleStage.shuffleDep.getMergerLocs.nonEmpty) {
+                shuffleStage.shuffleDep.getMergerLocs.nonEmpty && shuffleStage.isAvailable) {
                 // Check if a finalize task has already been scheduled. This is to prevent the
                 // following scenario: Stage A attempt 0 fails and gets retried. Stage A attempt 1
                 // succeeded, triggering the scheduling of shuffle merge finalization. However,

@@ -3834,11 +3834,31 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
     // Submit a reduce job that depends which will create a map stage
     submit(reduceRdd, (0 until parts).toArray)
 
-    complete(taskSets(0), taskSets(0).tasks.zipWithIndex.map {
+    val taskResults = taskSets(0).tasks.zipWithIndex.map {
+      case (task, idx) =>
+        (Success, makeMapStatus("host" + ('A' + idx).toChar, parts))
+    }.toSeq
+    // Remove MapStatus on one of the host before the stage ends to trigger
+    // a scenario where stage 0 needs to be resubmitted upon finishing all tasks.
+    // Merge finalization should not be scheduled in this case.
+    for ((result, i) <- taskResults.zipWithIndex) {
+      if (i == taskSets(0).tasks.size - 1) {
+        mapOutputTracker.removeOutputsOnHost("hostA")
+      }
+      if (i < taskSets(0).tasks.size) {
+        runEvent(makeCompletionEvent(taskSets(0).tasks(i), result._1, result._2))
+      }
+    }
+    val shuffleStage1 = scheduler.stageIdToStage(0).asInstanceOf[ShuffleMapStage]
+    assert(!shuffleStage1.shuffleDep.shuffleMergeFinalized
+      && shuffleStage1.shuffleDep.getFinalizeTask.isEmpty)
+
+    // Successfully completing the retry of stage 0. Merge finalization will
+    // be scheduled in this case.
+    complete(taskSets(2), taskSets(2).tasks.zipWithIndex.map {
       case (task, idx) =>
         (Success, makeMapStatus("host" + ('A' + idx).toChar, parts))
     }.toSeq)
-    val shuffleStage1 = scheduler.stageIdToStage(0).asInstanceOf[ShuffleMapStage]
     // Verify finalize task is set with 0 delay and merge results not marked
     // for registration due to shuffle size smaller than threshold
     assert(shuffleStage1.shuffleDep.getFinalizeTask.nonEmpty)
