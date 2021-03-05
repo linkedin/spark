@@ -3955,7 +3955,9 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
     val shuffleDep1 = new ShuffleDependency(shuffleMapRdd1, new HashPartitioner(parts))
     val shuffleMapRdd2 = new MyRDD(sc, parts, Nil)
     val shuffleDep2 = new ShuffleDependency(shuffleMapRdd2, new HashPartitioner(parts))
-    val reduceRdd = new MyRDD(sc, parts, List(shuffleDep1, shuffleDep2),
+    val shuffleMapRdd3 = new MyRDD(sc, parts, Nil)
+    val shuffleDep3 = new ShuffleDependency(shuffleMapRdd3, new HashPartitioner(parts))
+    val reduceRdd = new MyRDD(sc, parts, List(shuffleDep1, shuffleDep2, shuffleDep3),
       tracker = mapOutputTracker)
 
     // Submit a reduce job that depends which will create a map stage
@@ -3966,16 +3968,28 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
       Seq.empty, Array.empty, createFakeTaskInfoWithId(0)))
 
     val shuffleStage1 = scheduler.stageIdToStage(0).asInstanceOf[ShuffleMapStage]
+    val shuffleId1 = scheduler.shuffleIdToMapStage.find(_._2.equals(shuffleStage1)).get._1
     assert(shuffleStage1.shuffleDep.getMergerLocs.isEmpty)
-    assert(mapOutputTracker.getShufflePushMergerLocations(0).isEmpty)
+    assert(mapOutputTracker.getShufflePushMergerLocations(shuffleId1).isEmpty)
 
     runEvent(makeCompletionEvent(
       taskSets(1).tasks(0), Success, makeMapStatus("hostA", parts),
       Seq.empty, Array.empty, createFakeTaskInfoWithId(0)))
 
     val shuffleStage2 = scheduler.stageIdToStage(1).asInstanceOf[ShuffleMapStage]
+    val shuffleId2 = scheduler.shuffleIdToMapStage.find(_._2.equals(shuffleStage2)).get._1
     assert(shuffleStage2.shuffleDep.getMergerLocs.isEmpty)
-    assert(mapOutputTracker.getShufflePushMergerLocations(1).isEmpty)
+    assert(mapOutputTracker.getShufflePushMergerLocations(shuffleId2).isEmpty)
+
+    // Complete stage 3 without enabling push
+    complete(taskSets(2), taskSets(2).tasks.zipWithIndex.map {
+      case (task, idx) =>
+        (Success, makeMapStatus("host" + ('A' + idx).toChar, parts))
+    }.toSeq)
+    val shuffleStage3 = scheduler.stageIdToStage(2).asInstanceOf[ShuffleMapStage]
+    val shuffleId3 = scheduler.shuffleIdToMapStage.find(_._2.equals(shuffleStage3)).get._1
+    assert(shuffleStage3.shuffleDep.getMergerLocs.isEmpty)
+    assert(mapOutputTracker.getShufflePushMergerLocations(shuffleId3).isEmpty)
 
     DAGSchedulerSuite.addMergerLocs(Seq("host6", "host7", "host8"))
 
@@ -3993,14 +4007,18 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
 
     // Check if new shuffle merger locations are available for push and if sibling stages
     // are reusing the same merger locations
-    val mergerLocs1InMOT = mapOutputTracker.getShufflePushMergerLocations(0)
+    val mergerLocs1InMOT = mapOutputTracker.getShufflePushMergerLocations(shuffleId1)
     assert(mergerLocs1InMOT.size == 7)
     val mergerLocs1 = shuffleStage1.shuffleDep.getMergerLocs
     assert(mergerLocs1.size == 7)
-    val mergerLocs2InMOT = mapOutputTracker.getShufflePushMergerLocations(1)
+    val mergerLocs2InMOT = mapOutputTracker.getShufflePushMergerLocations(shuffleId2)
     assert(mergerLocs2InMOT.size == 7)
     val mergerLocs2 = shuffleStage1.shuffleDep.getMergerLocs
     assert(mergerLocs2.size == 7)
+    val mergerLocs3InMOT = mapOutputTracker.getShufflePushMergerLocations(shuffleId3)
+    assert(mergerLocs3InMOT.size == 0)
+    val mergerLocs3 = shuffleStage3.shuffleDep.getMergerLocs
+    assert(mergerLocs3.size == 0)
     // Check if same merger locs is reused
     assert(mergerLocs1.zip(mergerLocs2).forall(x => x._1.host == x._2.host))
     assert(mergerLocs1InMOT.zip(mergerLocs2InMOT).forall(x => x._1.host == x._2.host))
@@ -4013,7 +4031,7 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
         Seq.empty, Array.empty, createFakeTaskInfoWithId(x)))
     })
 
-    completeNextResultStageWithSuccess(2, 0)
+    completeNextResultStageWithSuccess(3, 0)
     assert(results === Map(0 -> 42, 1 -> 42, 2 -> 42, 3 -> 42, 4 -> 42, 5 -> 42, 6 -> 42))
 
     results.clear()

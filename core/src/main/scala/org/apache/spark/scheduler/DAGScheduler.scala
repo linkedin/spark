@@ -2482,7 +2482,9 @@ private[spark] class DAGScheduler(
     shuffleFileLostEpoch -= execId
 
     if (pushBasedShuffleEnabled) {
-      shuffleIdToMapStage.filter(_._2.shuffleDep.getMergerLocs.isEmpty)
+      // Only set merger locations for stages that are not yet finished and have empty mergers
+      shuffleIdToMapStage.filter { case (_, stage) =>
+        !stage.isAvailable && stage.shuffleDep.getMergerLocs.isEmpty}
         .foreach { case(_, stage: ShuffleMapStage) =>
           if (getAndSetShufflePushMergerLocations(stage).nonEmpty) {
             logInfo(s"Shuffle merge enabled adaptively for the stage $stage (${stage.name})" +
