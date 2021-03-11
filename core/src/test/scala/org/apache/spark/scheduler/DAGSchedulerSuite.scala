@@ -4005,6 +4005,11 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
     // as shuffle mergers are tracked separately for test
     runEvent(ExecutorAdded("dummy", "dummy"))
 
+    // Merger locations should be populated adaptively only for running stages
+    assert(mapOutputTracker.getShufflePushMergerLocations(shuffleId1).size == 7)
+    assert(mapOutputTracker.getShufflePushMergerLocations(shuffleId2).size == 7)
+    assert(mapOutputTracker.getShufflePushMergerLocations(shuffleId3).size == 0)
+
     // Check if new shuffle merger locations are available for push and if sibling stages
     // are reusing the same merger locations
     val mergerLocs1InMOT = mapOutputTracker.getShufflePushMergerLocations(shuffleId1)
