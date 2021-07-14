@@ -2604,7 +2604,6 @@ private[spark] object Utils extends Logging {
           conf.get(SparkLauncher.SPARK_MASTER, null) == "yarn" &&
           getYarnMaxAttempts(conf) == 1))
     if (isPushBasedShuffleEnabled && !conf.get(IS_TESTING).getOrElse(false)) {
-      // TODO: Remove this once push-based shuffle is fully supported.
       throw new UnsupportedOperationException("Push-based shuffle is not yet supported.")
     }
     isPushBasedShuffleEnabled
