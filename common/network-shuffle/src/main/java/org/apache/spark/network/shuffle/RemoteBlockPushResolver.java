@@ -87,7 +87,7 @@ public class RemoteBlockPushResolver implements MergedShuffleFileManager {
 
   private static final Logger logger = LoggerFactory.getLogger(RemoteBlockPushResolver.class);
   @VisibleForTesting
-  static final String MERGE_MANAGER_DIR = "merge_manager";
+  public static final String MERGE_MANAGER_DIR = "merge_manager";
   public static final String MERGED_SHUFFLE_FILE_NAME_PREFIX = "shuffleMerged";
 
   private static final ObjectMapper mapper = new ObjectMapper();
