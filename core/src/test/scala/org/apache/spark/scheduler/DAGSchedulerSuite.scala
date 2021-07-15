@@ -3467,6 +3467,7 @@ class DAGSchedulerSuite extends SparkFunSuite with TempLocalSparkContext with Ti
   private def initPushBasedShuffleConfs(conf: SparkConf) = {
     conf.set(config.SHUFFLE_SERVICE_ENABLED, true)
     conf.set(config.PUSH_BASED_SHUFFLE_ENABLED, true)
+    conf.set("spark.testing", "true")
     conf.set("spark.master", "pushbasedshuffleclustermanager")
     // Needed to run push-based shuffle tests in ad-hoc manner through IDE
     conf.set(Tests.IS_TESTING, true)

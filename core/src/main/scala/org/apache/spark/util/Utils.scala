@@ -2617,7 +2617,7 @@ private[spark] object Utils extends Logging {
    * with multiple app attempts
    */
   def getYarnMaxAttempts(conf: SparkConf): Int = {
-    val sparkMaxAttempts = conf.getOption("spark.yarn.maxAttempts").map(_.toInt)
+    val sparkMaxAttempts = conf.getOption("spark.yarn.maxAppAttempts").map(_.toInt)
     val yarnMaxAttempts = getSparkOrYarnConfig(conf, YarnConfiguration.RM_AM_MAX_ATTEMPTS,
       YarnConfiguration.DEFAULT_RM_AM_MAX_ATTEMPTS.toString).toInt
     sparkMaxAttempts match {
