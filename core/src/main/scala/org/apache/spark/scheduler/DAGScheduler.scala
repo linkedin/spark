@@ -1320,6 +1320,14 @@ private[spark] class DAGScheduler(
     if (stage.shuffleDep.getMergerLocs.isEmpty) {
       getAndSetShufflePushMergerLocations(stage)
     }
+
+    if (stage.shuffleDep.shuffleMergeEnabled) {
+      logInfo(("Shuffle merge enabled before starting the stage for %s (%s) with %d" +
+        " merger locations").format(stage, stage.name, stage.shuffleDep.getMergerLocs.size))
+    } else {
+      logInfo(("Shuffle merge disabled for %s (%s), but can get enabled later" +
+        " adaptively once enough mergers are available").format(stage, stage.name))
+    }
   }
 
   private def getAndSetShufflePushMergerLocations(stage: ShuffleMapStage): Seq[BlockManagerId] = {
@@ -1332,7 +1340,8 @@ private[spark] class DAGScheduler(
       } else {
         stage.shuffleDep.setShuffleMergeEnabled(false)
       }
-      logDebug(s"${stage.shuffleDep.getMergerLocs.map(_.host).mkString(", ")}")
+      logDebug(s"Shuffle merge locations: " +
+        s"${stage.shuffleDep.getMergerLocs.map(_.host).mkString(", ")}")
       mergerLocs
     } else {
       stage.shuffleDep.getMergerLocs
@@ -1374,8 +1383,6 @@ private[spark] class DAGScheduler(
         if (s.shuffleDep.shuffleMergeEnabled) {
           if (!s.shuffleDep.shuffleMergeFinalized) {
             prepareShuffleServicesForShuffleMapStage(s)
-            logInfo(("Shuffle merge enabled before starting the stage for %s (%s) with %d" +
-              " merger locations").format(s, s.name, s.shuffleDep.getMergerLocs.size))
           } else {
             // Disable Shuffle merge for the retry/reuse of the same shuffle dependency if it has
             // already been merge finalized. If the shuffle dependency was previously assigned
@@ -1385,9 +1392,6 @@ private[spark] class DAGScheduler(
             logInfo("Push-based shuffle disabled for $stage (${stage.name}) since it" +
               " is already shuffle merge finalized")
           }
-        } else {
-          logInfo(("Shuffle merge disabled for %s (%s), but can get enabled later" +
-            " adaptively once enough mergers are available").format(s, s.name))
         }
       case s: ResultStage =>
         outputCommitCoordinator.stageStart(
