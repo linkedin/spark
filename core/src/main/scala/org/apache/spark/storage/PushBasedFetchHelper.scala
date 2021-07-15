@@ -197,9 +197,10 @@ private class PushBasedFetchHelper(
           localShuffleMergerBlockMgrId)
       }
     } else {
-      logDebug(s"Asynchronous fetch the push-merged-local blocks without cached merged dirs")
+      logDebug(s"Asynchronous fetch the push-merged-local blocks without cached merged dirs" +
+        s"from the ESS")
       hostLocalDirManager.getHostLocalDirs(localShuffleMergerBlockMgrId.host,
-        localShuffleMergerBlockMgrId.port, Array(SHUFFLE_MERGER_IDENTIFIER)) {
+        blockManager.externalShuffleServicePort, Array(SHUFFLE_MERGER_IDENTIFIER)) {
         case Success(dirs) =>
           logDebug(s"Fetched merged dirs in " +
             s"${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTimeNs)} ms")

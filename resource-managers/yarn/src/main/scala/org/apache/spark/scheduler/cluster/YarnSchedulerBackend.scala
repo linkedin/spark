@@ -189,11 +189,12 @@ private[spark] abstract class YarnSchedulerBackend(
       math.max(1, math.ceil(numPartitions / tasksPerExecutor).toInt), maxExecutors)
     val minMergersNeeded = math.max(minMergersStaticThreshold,
       math.floor(numMergersDesired * minMergersThresholdRatio).toInt)
-
     // Request for numMergersDesired shuffle mergers to BlockManagerMasterEndpoint
     // and if it's less than minMergersNeeded, we disable push based shuffle.
     val mergerLocations = blockManagerMaster
       .getShufflePushMergerLocations(numMergersDesired, scheduler.excludedNodes())
+    logDebug(s"shuffle mergers desired $numMergersDesired, " +
+      s"minMergersNeeded $minMergersNeeded, mergersFromBlockManagerMaster ${mergerLocations.size}")
     if (mergerLocations.size < numMergersDesired && mergerLocations.size < minMergersNeeded) {
       Seq.empty[BlockManagerId]
     } else {

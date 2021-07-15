@@ -145,7 +145,8 @@ class ShuffleDependency[K: ClassTag, V: ClassTag, C: ClassTag](
    */
   def shuffleMergeFinalized: Boolean = {
     // Empty RDD won't be computed therefore shuffle merge finalized should be true by default.
-    if (shuffleMergeEnabled && rdd.getNumPartitions > 0) {
+    if (shuffleMergeEnabled ) {
+      // && rdd.getNumPartitions > 0* Throws NPE in the ShuffleMapTask
       _shuffleMergedFinalized
     } else {
       true
